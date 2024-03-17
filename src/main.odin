@@ -1,32 +1,47 @@
 package main
 
-import "actors"
+import "actor"
 import "core:fmt"
 
-behaviour :: proc(
-	self: ^actors.Actor,
-	sys: ^actors.System,
-	from: actors.ActorRef,
+stop_behaviour :: proc(
+	self: ^actor.Actor,
+	sys: ^actor.System,
+	from: actor.ActorRef,
 	msg: any,
+) -> (
+	next_behaviour: Maybe(actor.Behavior),
+) {
+	fmt.println("stopping")
+	actor.stop(sys)
+	return
+}
+
+counting_behaviour :: proc(
+	self: ^actor.Actor,
+	sys: ^actor.System,
+	from: actor.ActorRef,
+	msg: any,
+) -> (
+	next_behaviour: Maybe(actor.Behavior),
 ) {
 	switch d in msg {
 	case u128:
 		if d >= 10_000_000 {
-			actors.stop(sys)
+			return stop_behaviour
 		}
-		actors.send(sys, self.ref, from, d + 1)
+		actor.send(sys, self.ref, from, d + 1)
 	case string:
 		fmt.println(d)
 	}
+	return
 }
 
 main :: proc() {
-	sys := actors.new_system()
-	ping := actors.spawn(sys, behaviour)
-	pong := actors.spawn(sys, behaviour)
+	sys := actor.new_system()
+	count := actor.spawn(sys, counting_behaviour)
 
-	actors.send(sys, ping, pong, "test")
-	// actors.send(sys, ping, pong, u128(0))
+	// actor.send(sys, count, count, "test")
+	actor.send(sys, count, count, u128(0))
 
-	actors.work(sys)
+	actor.work(sys)
 }

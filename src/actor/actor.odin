@@ -17,7 +17,14 @@ free_anything :: proc(any: Anything) {
 	free(any.ptr)
 }
 
-Behavior :: proc(self: ^Actor, sys: ^System, from: ActorRef, msg: any)
+Behavior :: proc(
+	self: ^Actor,
+	sys: ^System,
+	from: ActorRef,
+	msg: any,
+) -> (
+	next_behaviour: Maybe(Behavior)
+)
 
 Actor :: struct {
 	ref:      ActorRef,
@@ -75,6 +82,9 @@ work :: proc(sys: ^System) {
 		}
 		msg := pop(&sys.queue)
 		actor := sys.actors[msg.to.addr]
-		actor.behavior(&actor, sys, msg.from, msg.msg.data)
+		next := actor.behavior(&actor, sys, msg.from, msg.msg.data)
+		if next != nil {
+			actor.behavior = next.?
+		}
 	}
 }
