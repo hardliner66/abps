@@ -4,3 +4,5 @@ build
 !build/.gitkeep
 deps
 !deps/.gitkeep
+.ignore
+.pijul
