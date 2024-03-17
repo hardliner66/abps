@@ -7,17 +7,16 @@ behaviour :: proc(
 	self: ^actors.Actor,
 	sys: ^actors.System,
 	from: actors.ActorRef,
-	msg: actors.Anything,
+	msg: any,
 ) {
-	switch msg.t {
+	switch d in msg {
 	case u128:
-		v := msg.any.(u128)
-		if v >= 10_000_000 {
+		if d >= 10_000_000 {
 			actors.stop(sys)
 		}
-		actors.send(sys, self.ref, from, msg.any.(u128) + 1)
+		actors.send(sys, self.ref, from, d + 1)
 	case string:
-		fmt.println("ping received string:", msg.any.(string))
+		fmt.println(d)
 	}
 }
 

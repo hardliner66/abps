@@ -2,28 +2,22 @@ package actors
 
 import "../uuid"
 
-// Anything :: struct {
-// 	any: any,
-// 	ptr: rawptr,
-// }
-
 Anything :: struct {
-	t:   typeid,
-	any: any,
-	ptr: rawptr,
+	data: any,
+	ptr:  rawptr,
 }
 
 new_anything :: proc(value: $T) -> Anything {
 	p := new(T)
 	p^ = value
-	return Anything{typeid_of(T), p^, p}
+	return Anything{p^, p}
 }
 
 free_anything :: proc(any: Anything) {
 	free(any.ptr)
 }
 
-Behavior :: proc(self: ^Actor, sys: ^System, from: ActorRef, msg: Anything)
+Behavior :: proc(self: ^Actor, sys: ^System, from: ActorRef, msg: any)
 
 Actor :: struct {
 	ref:      ActorRef,
@@ -81,6 +75,6 @@ work :: proc(sys: ^System) {
 		}
 		msg := pop(&sys.queue)
 		actor := sys.actors[msg.to.addr]
-		actor.behavior(&actor, sys, msg.from, msg.msg)
+		actor.behavior(&actor, sys, msg.from, msg.msg.data)
 	}
 }
