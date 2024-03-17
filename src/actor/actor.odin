@@ -45,16 +45,27 @@ System :: struct {
 	actors:  map[string]Actor,
 	queue:   [dynamic]Message,
 	running: bool,
-	count:   u128,
 }
 
 new_system :: proc() -> ^System {
 	sys := new(System)
 	sys.running = true
-	sys.count = 0
 	sys.actors = make(map[string]Actor)
 	sys.queue = make([dynamic]Message, 0)
 	return sys
+}
+
+destroy_system :: proc(sys: ^System) {
+	for len(sys.queue) > 0 {
+		msg := pop(&sys.queue)
+		free_anything(msg.msg)
+	}
+	delete(sys.queue)
+	for k, v in sys.actors {
+		_, _ = delete_key(&sys.actors, k)
+	}
+	delete(sys.actors)
+	free(sys)
 }
 
 spawn :: proc(sys: ^System, behavior: Behavior) -> ActorRef {
@@ -78,13 +89,14 @@ stop :: proc(sys: ^System) {
 work :: proc(sys: ^System) {
 	for sys.running {
 		if len(sys.queue) == 0 {
-			break
+			continue
 		}
 		msg := pop(&sys.queue)
-		actor := sys.actors[msg.to.addr]
-		next := actor.behavior(&actor, sys, msg.from, msg.msg.data)
+		actor := &sys.actors[msg.to.addr]
+		next := actor.behavior(actor, sys, msg.from, msg.msg.data)
+		free_anything(msg.msg)
 		if next != nil {
-			actor.behavior = next.?
+			actor^.behavior = next.?
 		}
 	}
 }

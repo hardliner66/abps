@@ -40,6 +40,7 @@ clone_to_string :: proc(
 	buf := make([]byte, 36, allocator) or_return
 	to_string(buf, u)
 	str = string(buf)
+	delete(buf)
 	return
 }
 
