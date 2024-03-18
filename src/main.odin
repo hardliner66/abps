@@ -1,7 +1,6 @@
 package main
 
 import "actor"
-import "core:c/libc"
 import "core:fmt"
 
 MaxMessages :: 10_000_000

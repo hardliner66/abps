@@ -5,7 +5,7 @@
             "name": "Debug Odin Project with LLDB",
             "type": "lldb",
             "request": "launch",
-            "program": "${workspaceFolder}/build/abps",
+            "program": "${workspaceFolder}/out/abps",
             "args": [],
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "Build Debug", // Match the label of your build task in tasks.json

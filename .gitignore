@@ -1,7 +1,7 @@
 .git
 .DS_Store
-build
-!build/.gitkeep
+out
+!out/.gitkeep
 deps
 !deps/.gitkeep
 .ignore

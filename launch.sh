@@ -2,4 +2,4 @@
 
 workspaceFolder=$(dirname "${BASH_SOURCE[0]}")
 
-odin run "$workspaceFolder/src" -out:${workspaceFolder}/build/abps -debug
+odin run "$workspaceFolder/src" -vet -out:${workspaceFolder}/out/abps -debug
