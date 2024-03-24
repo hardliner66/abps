@@ -2,6 +2,7 @@ package main
 
 import "actor"
 import "core:fmt"
+import "core:os"
 
 MaxMessages :: 10_000_000
 
@@ -28,34 +29,29 @@ counting_behaviour :: proc(
 	msg: any,
 ) {
 	switch d in msg {
-	case Command:
-		data := state^.(u128)
-		switch d {
-		case .Inc:
-			data += 1
-		}
-		state^ = data
-		if data >= MaxMessages {
-			actor.become(self, stop_behaviour)
-		}
-		actor.send(sys, self.ref, from, Command.Inc)
+	case actor.ActorRef:
+		self.state = d
 	case u128:
 		if d >= MaxMessages {
 			actor.become(self, stop_behaviour)
 		}
-		actor.send(sys, self.ref, from, d + 1)
-	case string:
-		fmt.println(d)
+		actor.send(sys, self.ref, state^.(actor.ActorRef), d + 1)
 	}
 }
 
 main :: proc() {
+	fmt.println(os.processor_core_count())
 	sys := actor.new_system()
-	count := actor.spawn(sys, u128(0), counting_behaviour)
-
-	actor.send(sys, count, count, Command.Inc)
+	a := actor.spawn(sys, nil, nil, counting_behaviour)
+	b := actor.spawn(sys, nil, a, counting_behaviour)
+	c := actor.spawn(sys, nil, b, counting_behaviour)
+	d := actor.spawn(sys, nil, c, counting_behaviour)
+	actor.send(sys, a, a, d)
+	actor.send(sys, a, a, u128(0))
 
 	actor.work(sys)
+
+	fmt.println("Messages: ", sys.message_counter)
 
 	actor.destroy_system(sys)
 }
