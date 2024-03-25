@@ -1,8 +1,6 @@
 .git
 .DS_Store
-build
-!build/.gitkeep
-deps
-!deps/.gitkeep
 .ignore
 .pijul
+zig-cache
+zig-out

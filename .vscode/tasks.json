@@ -4,12 +4,9 @@
         {
             "label": "Build Debug",
             "type": "shell",
-            "command": "odin",
+            "command": "zig",
             "args": [
-                "build",
-                "${workspaceFolder}/src",
-                "-out:${workspaceFolder}/build/abps",
-                "-debug"
+                "build"
             ],
             "group": {
                 "kind": "build",
