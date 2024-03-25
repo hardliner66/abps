@@ -1,9 +1,9 @@
 const std = @import("std");
 const a = @import("actor.zig");
 
-fn counting(self: *a.Actor, sys: *a.System, state: *a.Any, from: a.ActorRef, msg: a.Any) anyerror!void {
+fn counting(self: *a.Actor, sys: *a.System, state: *a.Any, from: a.ActorRef, msg: *a.Any) anyerror!void {
     _ = state;
-    if (msg.tryGet(i32)) |v| {
+    if (msg.matches(i32)) |v| {
         if (v <= 10_000_000) {
             try sys.send(self.ref, from, i32, v + 1);
         }
@@ -18,6 +18,7 @@ pub fn main() !void {
     defer system.destroy();
 
     const ref = try system.spawn(i32, 5, &counting);
+    try system.send(ref, ref, bool, true);
     try system.send(ref, ref, i32, 5);
 
     try system.work();

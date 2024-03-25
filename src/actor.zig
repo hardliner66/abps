@@ -4,7 +4,7 @@ const erase = @import("erase.zig");
 
 const Allocator = mem.Allocator;
 
-pub const Behavior = *const fn (self: *Actor, sys: *System, state: *Any, from: ActorRef, msg: Any) anyerror!void;
+pub const Behavior = *const fn (self: *Actor, sys: *System, state: *Any, from: ActorRef, msg: *Any) anyerror!void;
 
 fn toOpaque(behavior: Behavior) *anyopaque {
     return @constCast(
@@ -54,6 +54,10 @@ pub const ActorRef = struct {
     name: []const u8,
 };
 
+pub const DeadLetter = struct {
+    msg: Message,
+};
+
 pub const Message = struct {
     to: ActorRef,
     from: ActorRef,
@@ -62,7 +66,7 @@ pub const Message = struct {
 
 pub const System = struct {
     actors: std.StringHashMap(Actor),
-    queue: std.ArrayList(Message),
+    queue: std.ArrayList(*Message),
     running: bool,
     allocator: Allocator,
 
@@ -70,7 +74,7 @@ pub const System = struct {
         return .{
             .allocator = alloc,
             .actors = std.StringHashMap(Actor).init(alloc),
-            .queue = std.ArrayList(Message).init(alloc),
+            .queue = std.ArrayList(*Message).init(alloc),
             .running = true,
         };
     }
@@ -95,11 +99,15 @@ pub const System = struct {
     }
 
     pub fn send(self: *System, from: ActorRef, to: ActorRef, comptime T: type, msg: T) !void {
-        try self.queue.insert(0, .{ .from = from, .to = to, .msg = try any(
+        const m = try self.allocator.create(Message);
+        m.from = from;
+        m.to = to;
+        m.msg = try any(
             self.allocator,
             T,
             msg,
-        ) });
+        );
+        try self.queue.insert(0, m);
     }
 
     pub fn stop(self: *System) void {
@@ -114,7 +122,10 @@ pub const System = struct {
             if (self.queue.popOrNull()) |msg| {
                 if (self.actors.getPtr(msg.from.name)) |actor| {
                     const behavior: Behavior = fromOpaque(actor.behavior);
-                    try behavior(actor, self, &actor.state, msg.from, msg.msg);
+                    try behavior(actor, self, &actor.state, msg.from, &msg.msg);
+                    if (!msg.msg.read) {
+                        msg.msg.debug(msg.msg.ptr);
+                    }
                     msg.msg.deinit();
                 }
             }
@@ -126,6 +137,8 @@ pub const Any = struct {
     ptr: erase.AnyPointer,
     allocator: Allocator,
     dealloc: *const fn (allocator: Allocator, ptr: erase.AnyPointer) void,
+    debug: *const fn (ptr: erase.AnyPointer) void,
+    read: bool,
 
     pub fn makeDealloc(comptime T: type) (fn (allocator: Allocator, ptr: erase.AnyPointer) void) {
         return struct {
@@ -136,20 +149,31 @@ pub const Any = struct {
         }.dealloc;
     }
 
+    pub fn makeDebug(comptime T: type) (fn (ptr: erase.AnyPointer) void) {
+        return struct {
+            fn debug(ptr: erase.AnyPointer) void {
+                const p = ptr.cast(*T);
+                std.debug.print("Could not deliver message: {any}\n", .{p.*});
+            }
+        }.debug;
+    }
+
     pub fn init(allocator: Allocator, comptime T: type, v: T) !Any {
         const value = try allocator.create(T);
         value.* = v;
-        // return AnyHing{ .inner = value, .typ = t };
         return Any{
             .ptr = erase.AnyPointer.make(*T, value),
+            .read = false,
             .allocator = allocator,
             .dealloc = Any.makeDealloc(T),
+            .debug = Any.makeDebug(T),
         };
     }
 
-    pub fn tryGet(self: Any, comptime T: type) ?T {
+    pub fn matches(self: *Any, comptime T: type) ?T {
         const ptr = self.ptr.tryCast(*T);
         if (ptr) |p| {
+            self.read = true;
             return p.*;
         }
         return null;
