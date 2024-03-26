@@ -7,17 +7,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Mirror Repository
-        script:
-          - echo "Cloning repository..."
-          - git clone ${CI_REPOSITORY_URL} temp_repo && cd temp_repo
-          - echo "Removing old git history..."
-          - rm -rf .git
-          - echo "Reinitializing repository..."
-          - git init
-          - git add .
-          - git commit -m "Initial commit"
-          - echo "Force pushing to target repository..."
-          - git remote add origin https://github.com/hardliner66/abps.git
-          - echo "Using access token for authentication..."
-          - git push -u https://${GH_USERNAME}:${GH_TOKEN}@github.com/hardliner66/abps.git main --force
-
+        run: |
+          echo "Cloning repository..."
+          git clone ${CI_REPOSITORY_URL} temp_repo && cd temp_repo
+          echo "Removing old git history..."
+          rm -rf .git
+          echo "Reinitializing repository..."
+          git init
+          git add .
+          git commit -m "Initial commit"
+          echo "Force pushing to target repository..."
+          git remote add origin https://github.com/hardliner66/abps.git
+          echo "Using access token for authentication..."
+          git push -u https://${GH_USERNAME}:${GH_TOKEN}@github.com/hardliner66/abps.git main --force
