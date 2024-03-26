@@ -1,6 +1,9 @@
 name: Gitea Actions Demo
 run-name: ${{ gitea.actor }} is testing out Gitea Actions 🚀
-on: [push]
+on:
+  schedule:
+    - cron: "@daily"
+
 
 jobs:
   Explore-Gitea-Actions:
