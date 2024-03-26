@@ -16,7 +16,7 @@ jobs:
           git config --global user.email "hardliner66@gmail.com"
           git config --global user.name "hardliner66"
           echo "Removing old git history..."
-          rm -rf .git
+          rm -rf .git .gitmodules extern
           echo "Reinitializing repository..."
           git init
           git submodule add https://github.com/cameron314/concurrentqueue extern/concurrentqueue
