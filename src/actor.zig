@@ -1,6 +1,7 @@
 const std = @import("std");
 const mem = std.mem;
 const erase = @import("erase.zig");
+const lfq = @import("lfqueue.zig");
 
 const Allocator = mem.Allocator;
 
@@ -66,7 +67,7 @@ pub const Message = struct {
 
 pub const System = struct {
     actors: std.StringHashMap(Actor),
-    queue: std.ArrayList(*Message),
+    queue: lfq.LfQueue(*Message),
     running: bool,
     allocator: Allocator,
 
@@ -74,7 +75,7 @@ pub const System = struct {
         return .{
             .allocator = alloc,
             .actors = std.StringHashMap(Actor).init(alloc),
-            .queue = std.ArrayList(*Message).init(alloc),
+            .queue = lfq.LfQueue(*Message).init(alloc),
             .running = true,
         };
     }
@@ -85,7 +86,11 @@ pub const System = struct {
             value_ptr.deinit();
         }
         self.actors.deinit();
-        self.queue.clearAndFree();
+
+        while (self.queue.pop()) |msg| {
+            msg.msg.deinit();
+        }
+        self.queue.deinit();
     }
 
     pub fn spawn(self: *System, T: type, state: T, behavior: Behavior) !ActorRef {
@@ -107,7 +112,7 @@ pub const System = struct {
             T,
             msg,
         );
-        try self.queue.insert(0, m);
+        try self.queue.push(m);
     }
 
     pub fn stop(self: *System) void {
@@ -116,10 +121,7 @@ pub const System = struct {
 
     pub fn work(self: *System) !void {
         while (self.running) {
-            if (self.queue.items.len == 0) {
-                break;
-            }
-            if (self.queue.popOrNull()) |msg| {
+            if (self.queue.pop()) |msg| {
                 if (self.actors.getPtr(msg.from.name)) |actor| {
                     const behavior: Behavior = fromOpaque(actor.behavior);
                     try behavior(actor, self, &actor.state, msg.from, &msg.msg);
@@ -128,6 +130,8 @@ pub const System = struct {
                     }
                     msg.msg.deinit();
                 }
+            } else {
+                break;
             }
         }
     }
