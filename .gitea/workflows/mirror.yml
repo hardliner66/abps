@@ -22,3 +22,6 @@ jobs:
           git remote add origin https://github.com/hardliner66/abps.git
           echo "Using access token for authentication..."
           git push -u https://${GH_USERNAME}:${GH_TOKEN}@github.com/hardliner66/abps.git main --force
+        env:
+          GH_USERNAME: ${{ secrets.GH_USERNAME }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
