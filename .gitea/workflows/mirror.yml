@@ -4,7 +4,6 @@ on:
   schedule:
     - cron: "@daily"
 
-
 jobs:
   Explore-Gitea-Actions:
     runs-on: ubuntu-latest
@@ -20,7 +19,7 @@ jobs:
           echo "Reinitializing repository..."
           git init
           git add .
-          git commit -m "Initial commit"
+          git commit -m "MIRROR"
           echo "Force pushing to target repository..."
           git remote add origin https://github.com/hardliner66/abps.git
           echo "Using access token for authentication..."
