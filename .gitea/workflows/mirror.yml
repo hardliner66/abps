@@ -1,6 +1,7 @@
 name: Gitea Actions Demo
 run-name: ${{ gitea.actor }} is testing out Gitea Actions 🚀
 on:
+  push:
   schedule:
     - cron: "@daily"
 
@@ -18,6 +19,7 @@ jobs:
           rm -rf .git
           echo "Reinitializing repository..."
           git init
+          git submodule add https://github.com/cameron314/concurrentqueue extern/concurrentqueue
           git add .
           git commit -m "MIRROR"
           echo "Force pushing to target repository..."
