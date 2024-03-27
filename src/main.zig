@@ -1,12 +1,23 @@
 const std = @import("std");
 const a = @import("actor.zig");
 
+fn print(comptime format: []const u8, args: anytype) void {
+    const stdout_file = std.io.getStdOut().writer();
+    var bw = std.io.bufferedWriter(stdout_file);
+    const stdout = bw.writer();
+
+    stdout.print(format, args) catch {};
+
+    bw.flush() catch {};
+}
+
 fn counting(self: *a.Actor, sys: *a.System, state: *a.Any, from: a.ActorRef, msg: *a.Any) anyerror!void {
     _ = state;
     if (msg.matches(i32)) |v| {
         if (v <= 10_000_000) {
             try sys.send(self.ref, from, i32, v + 1);
         } else {
+            print("Done: {}", .{v});
             sys.stop();
         }
     }
@@ -23,15 +34,4 @@ pub fn main() !void {
     try system.send(ref, ref, i32, 5);
 
     system.wait();
-
-    // // stdout is for the actual output of your application, for example if you
-    // // are implementing gzip, then only the compressed bytes should be sent to
-    // // stdout, not any debugging messages.
-    // const stdout_file = std.io.getStdOut().writer();
-    // var bw = std.io.bufferedWriter(stdout_file);
-    // const stdout = bw.writer();
-
-    // try stdout.print("Run `zig build test` to run the tests.\n", .{});
-
-    // try bw.flush(); // don't forget to flush!
 }

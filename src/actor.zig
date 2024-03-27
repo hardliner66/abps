@@ -93,7 +93,7 @@ pub const Mailbox = struct {
 
 pub const Scheduler = struct {
     mailboxes: std.ArrayList(*Mailbox),
-    running: bool,
+    running: std.atomic.Value(bool),
     worker: std.Thread,
     system: *System,
     sema: std.Thread.Semaphore,
@@ -102,7 +102,7 @@ pub const Scheduler = struct {
         var scheduler = try allocator.create(Scheduler);
 
         scheduler.mailboxes = std.ArrayList(*Mailbox).init(allocator);
-        scheduler.running = true;
+        scheduler.running = std.atomic.Value(bool).init(true);
         scheduler.system = system;
         scheduler.sema = std.Thread.Semaphore{};
 
@@ -120,7 +120,7 @@ pub const Scheduler = struct {
     }
 
     pub fn stop(self: *Scheduler) void {
-        self.running = false;
+        self.running.store(false, .monotonic);
         self.sema.post();
     }
 
@@ -129,7 +129,7 @@ pub const Scheduler = struct {
     }
 
     fn work(self: *Scheduler) !void {
-        while (self.running) {
+        while (self.running.load(.monotonic)) {
             if (self.sema.timedWait(1_000_000)) |_| {
                 for (self.mailboxes.items) |mb| {
                     if (mb.queue.pop()) |env| {
