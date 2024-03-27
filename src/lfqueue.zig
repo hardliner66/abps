@@ -5,6 +5,14 @@ const cq = @cImport({
     @cInclude("c_api/concurrentqueue.h");
 });
 
+fn isPointer(comptime T: type) bool {
+    comptime var ti: std.builtin.Type = @typeInfo(T);
+    if (ti == .Optional) {
+        ti = @typeInfo(ti.Optional.child);
+    }
+    return ti == .Pointer;
+}
+
 pub fn LfQueue(comptime T: type) type {
     return struct {
         const Self = @This();
@@ -21,17 +29,28 @@ pub fn LfQueue(comptime T: type) type {
         }
 
         pub fn push(self: Self, value: T) !void {
-            const v = try self.allocator.create(T);
-            v.* = value;
-            _ = cq.moodycamel_cq_enqueue(self.lfq, @ptrCast(v));
+            if (isPointer(T)) {
+                _ = cq.moodycamel_cq_enqueue(self.lfq, @ptrCast(value));
+            } else {
+                const v = try self.allocator.create(T);
+                v.* = value;
+                _ = cq.moodycamel_cq_enqueue(self.lfq, @ptrCast(v));
+            }
         }
 
         pub fn pop(self: Self) ?T {
-            var v: *T = undefined;
-            if (cq.moodycamel_cq_try_dequeue(self.lfq, @ptrCast(&v)) != 0) {
-                const result = v.*;
-                self.allocator.destroy(v);
-                return result;
+            if (isPointer(T)) {
+                var v: T = undefined;
+                if (cq.moodycamel_cq_try_dequeue(self.lfq, @ptrCast(&v)) != 0) {
+                    return v;
+                }
+            } else {
+                var v: *T = undefined;
+                if (cq.moodycamel_cq_try_dequeue(self.lfq, @ptrCast(&v)) != 0) {
+                    const result = v.*;
+                    self.allocator.destroy(v);
+                    return result;
+                }
             }
             return null;
         }

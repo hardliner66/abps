@@ -25,13 +25,13 @@ pub const Actor = struct {
     last_behavior: ?*anyopaque,
     state: Any,
 
-    pub fn init(ref: ActorRef, state: Any, behavior: Behavior) Actor {
-        return .{
-            .behavior = toOpaque(behavior),
-            .state = state,
-            .ref = ref,
-            .last_behavior = null,
-        };
+    pub fn init(allocator: Allocator, state: Any, behavior: Behavior) !*Actor {
+        var actor = try allocator.create(Actor);
+        actor.behavior = toOpaque(behavior);
+        actor.state = state;
+        actor.last_behavior = null;
+
+        return actor;
     }
 
     pub fn deinit(self: *Actor) void {
@@ -52,7 +52,7 @@ pub const Actor = struct {
 };
 
 pub const ActorRef = struct {
-    name: []const u8,
+    ref: *Mailbox,
 };
 
 pub const DeadLetter = struct {
@@ -63,44 +63,136 @@ pub const Envelope = struct {
     to: ActorRef,
     from: ActorRef,
     msg: Any,
+
+    pub fn deinit(self: *Envelope) void {
+        self.msg.deinit();
+    }
+};
+
+pub const Mailbox = struct {
+    actor: *Actor,
+    queue: lfq.LfQueue(*Envelope),
+    scheduler: *Scheduler,
+
+    pub fn init(allocator: Allocator, actor: *Actor, scheduler: *Scheduler) !*@This() {
+        var mb = try allocator.create(Mailbox);
+
+        mb.actor = actor;
+        mb.queue = lfq.LfQueue(*Envelope).init(allocator);
+        mb.scheduler = scheduler;
+
+        return mb;
+    }
+
+    pub fn deinit(self: *Mailbox) void {
+        while (self.queue.pop()) |env| {
+            env.deinit();
+        }
+    }
+};
+
+pub const Scheduler = struct {
+    mailboxes: std.ArrayList(*Mailbox),
+    running: bool,
+    worker: std.Thread,
+    system: *System,
+    sema: std.Thread.Semaphore,
+
+    pub fn init(allocator: Allocator, system: *System) !*@This() {
+        var scheduler = try allocator.create(Scheduler);
+
+        scheduler.mailboxes = std.ArrayList(*Mailbox).init(allocator);
+        scheduler.running = true;
+        scheduler.system = system;
+        scheduler.sema = std.Thread.Semaphore{};
+
+        const worker = try std.Thread.spawn(.{ .allocator = allocator }, work, .{scheduler});
+        scheduler.worker = worker;
+
+        return scheduler;
+    }
+
+    pub fn deinit(self: *Scheduler) !void {
+        self.stop();
+        while (self.mailboxes.popOrNull()) |mb| {
+            mb.deinit();
+        }
+    }
+
+    pub fn stop(self: *Scheduler) void {
+        self.running = false;
+        self.sema.post();
+    }
+
+    pub fn wait(self: *Scheduler) void {
+        self.worker.join();
+    }
+
+    fn work(self: *Scheduler) !void {
+        while (self.running) {
+            if (self.sema.timedWait(1_000_000)) |_| {
+                for (self.mailboxes.items) |mb| {
+                    if (mb.queue.pop()) |env| {
+                        const behavior: Behavior = fromOpaque(mb.actor.behavior);
+                        try behavior(mb.actor, self.system, &mb.actor.state, env.from, &env.msg);
+                        if (!env.msg.read) {
+                            env.msg.debug(env.msg.ptr);
+                        }
+                        env.msg.deinit();
+                    }
+                }
+            } else |_| {}
+        }
+    }
 };
 
 pub const System = struct {
-    actors: std.StringHashMap(Actor),
-    queue: lfq.LfQueue(*Envelope),
-    running: bool,
+    schedulers: std.ArrayList(*Scheduler),
     allocator: Allocator,
+    counter: std.atomic.Value(usize),
 
-    pub fn new(alloc: Allocator) @This() {
-        return .{
-            .allocator = alloc,
-            .actors = std.StringHashMap(Actor).init(alloc),
-            .queue = lfq.LfQueue(*Envelope).init(alloc),
-            .running = true,
-        };
+    pub fn init(allocator: Allocator) !*@This() {
+        var system = try allocator.create(System);
+        var schedulers = std.ArrayList(*Scheduler).init(allocator);
+        const cpu_count = try std.Thread.getCpuCount();
+        for (0..cpu_count) |_| {
+            try schedulers.append(try Scheduler.init(
+                allocator,
+                system,
+            ));
+        }
+        system.allocator = allocator;
+        system.schedulers = schedulers;
+        system.counter = std.atomic.Value(usize).init(0);
+        return system;
     }
 
-    pub fn destroy(self: *System) void {
-        var it = self.actors.valueIterator();
-        while (it.next()) |value_ptr| {
-            value_ptr.deinit();
+    pub fn deinit(self: *System) !void {
+        for (try self.schedulers.toOwnedSlice()) |scheduler| {
+            try scheduler.deinit();
         }
-        self.actors.deinit();
-
-        while (self.queue.pop()) |env| {
-            env.msg.deinit();
-        }
-        self.queue.deinit();
+        self.schedulers.deinit();
     }
 
     pub fn spawn(self: *System, T: type, state: T, behavior: Behavior) !ActorRef {
-        const actor = Actor.init(
-            .{ .name = "test" },
+        const actor = try Actor.init(
+            self.allocator,
             try any(self.allocator, T, state),
             behavior,
         );
-        try self.actors.put("test", actor);
-        return .{ .name = "test" };
+        const i = self.counter.fetchAdd(1, .monotonic);
+        const mb = try Mailbox.init(self.allocator, actor, self.schedulers.items[i]);
+        try self.schedulers.items[i].mailboxes.append(mb);
+
+        const ref = ActorRef{ .ref = mb };
+        actor.ref = ref;
+        return ref;
+    }
+
+    pub fn wait(self: *System) void {
+        for (self.schedulers.items) |scheduler| {
+            scheduler.wait();
+        }
     }
 
     pub fn send(self: *System, from: ActorRef, to: ActorRef, comptime T: type, value: T) !void {
@@ -112,27 +204,13 @@ pub const System = struct {
             T,
             value,
         );
-        try self.queue.push(m);
+        try to.ref.queue.push(m);
+        to.ref.scheduler.sema.post();
     }
 
     pub fn stop(self: *System) void {
-        self.running = false;
-    }
-
-    pub fn work(self: *System) !void {
-        while (self.running) {
-            if (self.queue.pop()) |env| {
-                if (self.actors.getPtr(env.from.name)) |actor| {
-                    const behavior: Behavior = fromOpaque(actor.behavior);
-                    try behavior(actor, self, &actor.state, env.from, &env.msg);
-                    if (!env.msg.read) {
-                        env.msg.debug(env.msg.ptr);
-                    }
-                    env.msg.deinit();
-                }
-            } else {
-                break;
-            }
+        for (self.schedulers.items) |scheduler| {
+            scheduler.stop();
         }
     }
 };

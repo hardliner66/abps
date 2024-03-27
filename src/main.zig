@@ -6,6 +6,8 @@ fn counting(self: *a.Actor, sys: *a.System, state: *a.Any, from: a.ActorRef, msg
     if (msg.matches(i32)) |v| {
         if (v <= 10_000_000) {
             try sys.send(self.ref, from, i32, v + 1);
+        } else {
+            sys.stop();
         }
     }
 }
@@ -13,20 +15,14 @@ fn counting(self: *a.Actor, sys: *a.System, state: *a.Any, from: a.ActorRef, msg
 pub fn main() !void {
     const allocator = std.heap.c_allocator;
 
-    var system = a.System.new(allocator);
-    defer system.destroy();
+    var system = try a.System.init(allocator);
+    defer system.deinit() catch {};
 
     const ref = try system.spawn(i32, 5, &counting);
     try system.send(ref, ref, bool, true);
     try system.send(ref, ref, i32, 5);
 
-    try system.work();
-
-    // const a = try actor.any(i32, gpa, 32);
-    //
-    // if (a.tryGet(i32)) |value| {
-    //     std.debug.print("{any}\n", .{value});
-    // }
+    system.wait();
 
     // // stdout is for the actual output of your application, for example if you
     // // are implementing gzip, then only the compressed bytes should be sent to
