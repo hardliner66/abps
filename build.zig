@@ -22,13 +22,17 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const release_flags = [_][]const u8{};
+    const debug_flags = [_][]const u8{"-O3"};
+    const flags = if (optimize == .Debug) &debug_flags else &release_flags;
+
     exe.linkLibCpp();
     exe.addIncludePath(.{ .path = "extern/concurrentqueue" });
     exe.addIncludePath(.{ .path = "extern/concurrentqueue/c_api" });
     exe.addIncludePath(.{ .path = "extern/concurrentqueue/internal" });
     exe.addCSourceFile(.{
         .file = .{ .path = "extern/concurrentqueue/c_api/concurrentqueue.cpp" },
-        .flags = &.{"-O3"},
+        .flags = flags,
     });
 
     // This declares intent for the executable to be installed into the

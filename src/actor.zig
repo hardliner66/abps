@@ -9,13 +9,13 @@ pub const Behavior = *const fn (self: *Actor, sys: *System, state: *Any, from: A
 
 fn toOpaque(behavior: Behavior) *anyopaque {
     return @constCast(
-        @ptrCast(@alignCast(behavior)),
+        @ptrCast(behavior),
     );
 }
 
 fn fromOpaque(behavior: *anyopaque) Behavior {
     return @constCast(
-        @ptrCast(@alignCast(behavior)),
+        @ptrCast(behavior),
     );
 }
 
