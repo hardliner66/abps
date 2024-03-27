@@ -56,10 +56,10 @@ pub const ActorRef = struct {
 };
 
 pub const DeadLetter = struct {
-    msg: Message,
+    env: Envelope,
 };
 
-pub const Message = struct {
+pub const Envelope = struct {
     to: ActorRef,
     from: ActorRef,
     msg: Any,
@@ -67,7 +67,7 @@ pub const Message = struct {
 
 pub const System = struct {
     actors: std.StringHashMap(Actor),
-    queue: lfq.LfQueue(*Message),
+    queue: lfq.LfQueue(*Envelope),
     running: bool,
     allocator: Allocator,
 
@@ -75,7 +75,7 @@ pub const System = struct {
         return .{
             .allocator = alloc,
             .actors = std.StringHashMap(Actor).init(alloc),
-            .queue = lfq.LfQueue(*Message).init(alloc),
+            .queue = lfq.LfQueue(*Envelope).init(alloc),
             .running = true,
         };
     }
@@ -87,8 +87,8 @@ pub const System = struct {
         }
         self.actors.deinit();
 
-        while (self.queue.pop()) |msg| {
-            msg.msg.deinit();
+        while (self.queue.pop()) |env| {
+            env.msg.deinit();
         }
         self.queue.deinit();
     }
@@ -103,14 +103,14 @@ pub const System = struct {
         return .{ .name = "test" };
     }
 
-    pub fn send(self: *System, from: ActorRef, to: ActorRef, comptime T: type, msg: T) !void {
-        const m = try self.allocator.create(Message);
+    pub fn send(self: *System, from: ActorRef, to: ActorRef, comptime T: type, value: T) !void {
+        const m = try self.allocator.create(Envelope);
         m.from = from;
         m.to = to;
         m.msg = try any(
             self.allocator,
             T,
-            msg,
+            value,
         );
         try self.queue.push(m);
     }
@@ -121,14 +121,14 @@ pub const System = struct {
 
     pub fn work(self: *System) !void {
         while (self.running) {
-            if (self.queue.pop()) |msg| {
-                if (self.actors.getPtr(msg.from.name)) |actor| {
+            if (self.queue.pop()) |env| {
+                if (self.actors.getPtr(env.from.name)) |actor| {
                     const behavior: Behavior = fromOpaque(actor.behavior);
-                    try behavior(actor, self, &actor.state, msg.from, &msg.msg);
-                    if (!msg.msg.read) {
-                        msg.msg.debug(msg.msg.ptr);
+                    try behavior(actor, self, &actor.state, env.from, &env.msg);
+                    if (!env.msg.read) {
+                        env.msg.debug(env.msg.ptr);
                     }
-                    msg.msg.deinit();
+                    env.msg.deinit();
                 }
             } else {
                 break;

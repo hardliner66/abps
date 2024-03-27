@@ -11,10 +11,9 @@ fn counting(self: *a.Actor, sys: *a.System, state: *a.Any, from: a.ActorRef, msg
 }
 
 pub fn main() !void {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    const gpa = general_purpose_allocator.allocator();
+    const allocator = std.heap.c_allocator;
 
-    var system = a.System.new(gpa);
+    var system = a.System.new(allocator);
     defer system.destroy();
 
     const ref = try system.spawn(i32, 5, &counting);
