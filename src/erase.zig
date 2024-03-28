@@ -31,11 +31,7 @@ pub const SafePointer = struct {
     pub fn cast(self: SafePointer, comptime T: type) T {
         assertPointer(T);
         if (typeId(T) != self.type_id) {
-            if (builtin.mode == .Debug) {
-                std.debug.panic("Type mismatch: Expected {s}, but got {s}!", .{ @typeName(T), self.type_id.name() });
-            } else {
-                std.debug.panic("Type mismatch: Expected {s}, but got <unknown>!", .{@typeName(T)});
-            }
+            std.debug.panic("Type mismatch: Expected {s}, but got {s}!", .{ @typeName(T), self.type_id.name() });
         }
         return @as(T, @ptrFromInt(self.address));
     }
@@ -63,44 +59,11 @@ pub const SafePointer = struct {
     }
 };
 
-/// A type-erased pointer. Can contain *any* pointer and can be converted back to the original one.
-pub const UnsafePointer = enum(usize) {
-    /// Pointer to a invalid value.
-    null_pointer,
-    _,
-
-    /// Creates a new type-erased pointer.
-    pub fn make(comptime T: type, ptr: T) UnsafePointer {
-        assertPointer(T);
-        return @as(UnsafePointer, @enumFromInt(@intFromPtr(ptr)));
-    }
-
-    /// Will return the type-erased pointer as `T`.
-    pub fn cast(self: UnsafePointer, comptime T: type) T {
-        assertPointer(T);
-        return @as(T, @ptrFromInt(@intFromEnum(self)));
-    }
-
-    /// Returns true if the pointer is a null pointer
-    pub fn isNull(self: UnsafePointer) bool {
-        return self == .null_pointer;
-    }
-
-    /// Returns true if the address of both pointers is the same.
-    pub fn eql(self: UnsafePointer, other: UnsafePointer) bool {
-        return self == other;
-    }
-};
-
 const TypeId = enum(usize) {
     _,
 
     pub fn name(self: TypeId) []const u8 {
-        if (builtin.mode == .Debug) {
-            return std.mem.sliceTo(@as([*:0]const u8, @ptrFromInt(@intFromEnum(self))), 0);
-        } else {
-            @compileError("Cannot use TypeId.name outside of Debug mode!");
-        }
+        return std.mem.sliceTo(@as([*:0]const u8, @ptrFromInt(@intFromEnum(self))), 0);
     }
 };
 
@@ -118,15 +81,11 @@ fn assertPointer(comptime T: type) void {
 }
 
 fn typeId(comptime T: type) TypeId {
-    const Tag = if (builtin.mode == .Debug)
+    const Tag =
         struct {
-            const str = @typeName(T);
-            var name: [str.len:0]u8 = str.*;
-        }
-    else
-        struct {
-            var name: u8 = 0;
-        };
+        const str = @typeName(T);
+        var name: [str.len:0]u8 = str.*;
+    };
     return @as(TypeId, @enumFromInt(@intFromPtr(&Tag.name)));
 }
 

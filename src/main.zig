@@ -11,14 +11,24 @@ fn print(comptime format: []const u8, args: anytype) void {
     bw.flush() catch {};
 }
 
+fn die(self: *a.Actor, sys: *a.System, from: a.ActorRef, msg: *a.Any) anyerror!void {
+    _ = self;
+    _ = from;
+    // make sure we dont get a "message was not handled!" message
+    _ = msg.matches(void);
+    sys.stop();
+}
+
 fn counting(self: *a.Actor, sys: *a.System, state: *i32, from: a.ActorRef, msg: *a.Any) anyerror!void {
-    _ = state;
     if (msg.matches(i32)) |v| {
-        if (v <= 10_000_000) {
-            try sys.send(self.ref, from, i32, v + 1);
+        print("{}\n", .{v});
+        state.* += v;
+        if (state.* < 5) {
+            try sys.send(self.ref, from, i32, 1);
         } else {
-            print("Done: {}", .{v});
-            sys.stop();
+            print("Done: {}\n", .{state.*});
+            try self.becomeStateless(&die);
+            try sys.send(self.ref, from, void, {});
         }
     }
 }
@@ -31,9 +41,9 @@ pub fn main() !void {
     var system = try a.System.init(allocator);
     defer system.deinit() catch {};
 
-    const ref = try system.spawn(i32, 5, &counting);
-    try system.send(ref, ref, bool, true);
-    try system.send(ref, ref, i32, 5);
+    const ref = try system.spawnWithName("Counting Actor", i32, 0, &counting);
+    try system.send(ref, ref, []const u8, "test");
+    try system.send(ref, ref, i32, 1);
 
     system.wait();
 }

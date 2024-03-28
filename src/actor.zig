@@ -9,7 +9,15 @@ pub fn TypedBehavior(comptime T: type) type {
     return *const fn (self: *Actor, sys: *System, state: *T, from: ActorRef, msg: *Any) anyerror!void;
 }
 
+pub const StatelessBehavior = *const fn (self: *Actor, sys: *System, from: ActorRef, msg: *Any) anyerror!void;
+
 fn toOpaque(comptime T: type, behavior: TypedBehavior(T)) *anyopaque {
+    return @constCast(
+        @ptrCast(behavior),
+    );
+}
+
+fn statelessToOpaque(behavior: StatelessBehavior) *anyopaque {
     return @constCast(
         @ptrCast(behavior),
     );
@@ -17,10 +25,31 @@ fn toOpaque(comptime T: type, behavior: TypedBehavior(T)) *anyopaque {
 
 pub const Actor = struct {
     ref: ActorRef,
+    name: ?[]const u8,
     behavior: *anyopaque,
     state: *anyopaque,
+    allocator: Allocator,
+    dealloc: *const fn (allocator: Allocator, ptr: *anyopaque) void,
 
     call_behavior: *const fn (self: *Actor, sys: *System, from: ActorRef, msg: *Any) anyerror!void,
+
+    fn makeDealloc(comptime T: type) (fn (allocator: Allocator, ptr: *anyopaque) void) {
+        return struct {
+            fn dealloc(allocator: Allocator, ptr: *anyopaque) void {
+                const p: *T = @alignCast(@ptrCast(ptr));
+                allocator.destroy(p);
+            }
+        }.dealloc;
+    }
+
+    fn makeEmptyDealloc() (fn (allocator: Allocator, ptr: *anyopaque) void) {
+        return struct {
+            fn dealloc(allocator: Allocator, ptr: *anyopaque) void {
+                _ = allocator;
+                _ = ptr;
+            }
+        }.dealloc;
+    }
 
     fn makeCallBehavior(comptime T: type) (fn (self: *Actor, sys: *System, from: ActorRef, msg: *Any) anyerror!void) {
         return struct {
@@ -33,23 +62,55 @@ pub const Actor = struct {
         }.callBehavior;
     }
 
+    fn makeStatelessCallBehavior() (fn (self: *Actor, sys: *System, from: ActorRef, msg: *Any) anyerror!void) {
+        return struct {
+            fn callBehavior(self: *Actor, sys: *System, from: ActorRef, msg: *Any) anyerror!void {
+                const behavior: StatelessBehavior = @alignCast(@ptrCast(self.behavior));
+
+                return behavior(self, sys, from, msg);
+            }
+        }.callBehavior;
+    }
+
     pub fn become(self: *Actor, comptime T: type, state: T, behavior: TypedBehavior(T)) !void {
         self.behavior = toOpaque(T, behavior);
         self.call_behavior = Actor.makeCallBehavior(T);
+
+        self.dealloc(self.allocator, self.state);
+        self.dealloc = Actor.makeDealloc(T);
 
         const state_ptr = try self.allocator.create(T);
         state_ptr.* = state;
         self.state = @ptrCast(state_ptr);
     }
 
+    pub fn becomeStateless(self: *Actor, behavior: StatelessBehavior) !void {
+        self.behavior = statelessToOpaque(behavior);
+        self.call_behavior = Actor.makeStatelessCallBehavior();
+
+        self.dealloc(self.allocator, self.state);
+        self.dealloc = Actor.makeEmptyDealloc();
+    }
+
     pub fn init(allocator: Allocator, comptime T: type, state: T, behavior: TypedBehavior(T)) !*Actor {
         var actor = try allocator.create(Actor);
-        actor.behavior = toOpaque(T, behavior);
-        actor.call_behavior = Actor.makeCallBehavior(T);
+        actor.allocator = allocator;
+        actor.dealloc = Actor.makeEmptyDealloc();
+        try actor.become(T, state, behavior);
 
-        const state_ptr = try allocator.create(T);
-        state_ptr.* = state;
-        actor.state = @ptrCast(state_ptr);
+        return actor;
+    }
+
+    pub fn with_name(self: *Actor, name: []const u8) *Actor {
+        self.name = name;
+        return self;
+    }
+
+    pub fn initStateless(allocator: Allocator, behavior: StatelessBehavior) !*Actor {
+        var actor = try allocator.create(Actor);
+        actor.allocator = allocator;
+        actor.dealloc = Actor.makeEmptyDealloc();
+        try actor.becomeStateless(behavior);
 
         return actor;
     }
@@ -143,7 +204,7 @@ pub const Scheduler = struct {
                     if (mb.queue.pop()) |env| {
                         mb.actor.call_behavior(mb.actor, self.system, env.from, &env.msg) catch {};
                         if (!env.msg.read) {
-                            env.msg.debug(env.msg.ptr);
+                            env.msg.debug(mb.actor, env.msg.ptr);
                         }
                         env.msg.deinit();
                     }
@@ -179,6 +240,12 @@ pub const System = struct {
             try scheduler.deinit();
         }
         self.schedulers.deinit();
+    }
+
+    pub fn spawnWithName(self: *System, name: []const u8, T: type, state: T, behavior: TypedBehavior(T)) !ActorRef {
+        const ref = try self.spawn(T, state, behavior);
+        ref.ref.actor.name = name;
+        return ref;
     }
 
     pub fn spawn(self: *System, T: type, state: T, behavior: TypedBehavior(T)) !ActorRef {
@@ -223,11 +290,31 @@ pub const System = struct {
     }
 };
 
+fn print(comptime format: []const u8, args: anytype) void {
+    const stdout_file = std.io.getStdOut().writer();
+    var bw = std.io.bufferedWriter(stdout_file);
+    const stdout = bw.writer();
+
+    stdout.print(format, args) catch {};
+
+    bw.flush() catch {};
+}
+
+fn eprint(comptime format: []const u8, args: anytype) void {
+    const stdout_file = std.io.getStdErr().writer();
+    var bw = std.io.bufferedWriter(stdout_file);
+    const stdout = bw.writer();
+
+    stdout.print(format, args) catch {};
+
+    bw.flush() catch {};
+}
+
 pub const Any = struct {
     ptr: erase.AnyPointer,
     allocator: Allocator,
     dealloc: *const fn (allocator: Allocator, ptr: erase.AnyPointer) void,
-    debug: *const fn (ptr: erase.AnyPointer) void,
+    debug: *const fn (actor: *Actor, ptr: erase.AnyPointer) void,
     read: bool,
 
     fn makeDealloc(comptime T: type) (fn (allocator: Allocator, ptr: erase.AnyPointer) void) {
@@ -239,11 +326,18 @@ pub const Any = struct {
         }.dealloc;
     }
 
-    fn makeDebug(comptime T: type) (fn (ptr: erase.AnyPointer) void) {
+    fn makeDebug(comptime T: type) (fn (actor: *Actor, ptr: erase.AnyPointer) void) {
         return struct {
-            fn debug(ptr: erase.AnyPointer) void {
-                const p = ptr.cast(*T);
-                std.debug.print("Could not deliver message: {any}\n", .{p.*});
+            fn debug(actor: *Actor, ptr: erase.AnyPointer) void {
+                const name = actor.name orelse "<unnamed>";
+                if (ptr.tryCast(*[]const u8)) |s| {
+                    eprint("Message was not handled by actor(@{*}.\"{s}\"): {s}\n", .{ actor, name, s.* });
+                } else if (ptr.tryCast(*[]u8)) |s| {
+                    eprint("Message was not handled by actor(@{*}.\"{s}\"): {s}\n", .{ actor, name, s.* });
+                } else {
+                    const p = ptr.cast(*T);
+                    eprint("Message was not handled by actor(@{*}.\"{s}\"): {any}\n", .{ actor, name, p.* });
+                }
             }
         }.debug;
     }
