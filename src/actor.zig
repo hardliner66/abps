@@ -331,12 +331,12 @@ pub const Any = struct {
             fn debug(actor: *Actor, ptr: erase.AnyPointer) void {
                 const name = actor.name orelse "<unnamed>";
                 if (ptr.tryCast(*[]const u8)) |s| {
-                    eprint("Message was not handled by actor(@{*}.\"{s}\"): {s}\n", .{ actor, name, s.* });
+                    eprint("Message was not handled by {*}.\"{s}\": {s}\n", .{ actor, name, s.* });
                 } else if (ptr.tryCast(*[]u8)) |s| {
-                    eprint("Message was not handled by actor(@{*}.\"{s}\"): {s}\n", .{ actor, name, s.* });
+                    eprint("Message was not handled by {*}.\"{s}\": {s}\n", .{ actor, name, s.* });
                 } else {
                     const p = ptr.cast(*T);
-                    eprint("Message was not handled by actor(@{*}.\"{s}\"): {any}\n", .{ actor, name, p.* });
+                    eprint("Message was not handled by {*}.\"{s}\": {any}\n", .{ actor, name, p.* });
                 }
             }
         }.debug;

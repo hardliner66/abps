@@ -1,4 +1,5 @@
 const std = @import("std");
+const eql = std.mem.eql;
 const a = @import("actor.zig");
 
 fn print(comptime format: []const u8, args: anytype) void {
@@ -21,9 +22,8 @@ fn die(self: *a.Actor, sys: *a.System, from: a.ActorRef, msg: *a.Any) anyerror!v
 
 fn counting(self: *a.Actor, sys: *a.System, state: *i32, from: a.ActorRef, msg: *a.Any) anyerror!void {
     if (msg.matches(i32)) |v| {
-        print("{}\n", .{v});
         state.* += v;
-        if (state.* < 5) {
+        if (state.* < 10_000_000) {
             try sys.send(self.ref, from, i32, 1);
         } else {
             print("Done: {}\n", .{state.*});
@@ -34,9 +34,24 @@ fn counting(self: *a.Actor, sys: *a.System, state: *i32, from: a.ActorRef, msg: 
 }
 
 pub fn main() !void {
-    // const allocator = std.heap.c_allocator;
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
+    var allocator = std.heap.c_allocator;
+    // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    // const allocator = gpa.allocator();
+
+    var argsIterator = try std.process.ArgIterator.initWithAllocator(allocator);
+    defer argsIterator.deinit();
+
+    // Skip executable
+    _ = argsIterator.next();
+
+    // Handle cases accordingly
+    while (argsIterator.next()) |arg| {
+        if (eql(u8, arg, "--debug")) {
+            var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+            allocator = gpa.allocator();
+            print("DEBUG MODE\n", .{});
+        }
+    }
 
     var system = try a.System.init(allocator);
     defer system.deinit() catch {};
