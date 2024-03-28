@@ -11,7 +11,7 @@ fn print(comptime format: []const u8, args: anytype) void {
     bw.flush() catch {};
 }
 
-fn counting(self: *a.Actor, sys: *a.System, state: *a.Any, from: a.ActorRef, msg: *a.Any) anyerror!void {
+fn counting(self: *a.Actor, sys: *a.System, state: *i32, from: a.ActorRef, msg: *a.Any) anyerror!void {
     _ = state;
     if (msg.matches(i32)) |v| {
         if (v <= 10_000_000) {
@@ -24,7 +24,9 @@ fn counting(self: *a.Actor, sys: *a.System, state: *a.Any, from: a.ActorRef, msg
 }
 
 pub fn main() !void {
-    const allocator = std.heap.c_allocator;
+    // const allocator = std.heap.c_allocator;
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
 
     var system = try a.System.init(allocator);
     defer system.deinit() catch {};

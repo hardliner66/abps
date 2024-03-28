@@ -5,15 +5,11 @@ const lfq = @import("lfqueue.zig");
 
 const Allocator = mem.Allocator;
 
-pub const Behavior = *const fn (self: *Actor, sys: *System, state: *Any, from: ActorRef, msg: *Any) anyerror!void;
-
-fn toOpaque(behavior: Behavior) *anyopaque {
-    return @constCast(
-        @ptrCast(behavior),
-    );
+pub fn TypedBehavior(comptime T: type) type {
+    return *const fn (self: *Actor, sys: *System, state: *T, from: ActorRef, msg: *Any) anyerror!void;
 }
 
-fn fromOpaque(behavior: *anyopaque) Behavior {
+fn toOpaque(comptime T: type, behavior: TypedBehavior(T)) *anyopaque {
     return @constCast(
         @ptrCast(behavior),
     );
@@ -22,32 +18,44 @@ fn fromOpaque(behavior: *anyopaque) Behavior {
 pub const Actor = struct {
     ref: ActorRef,
     behavior: *anyopaque,
-    last_behavior: ?*anyopaque,
-    state: Any,
+    state: *anyopaque,
 
-    pub fn init(allocator: Allocator, state: Any, behavior: Behavior) !*Actor {
+    call_behavior: *const fn (self: *Actor, sys: *System, from: ActorRef, msg: *Any) anyerror!void,
+
+    fn makeCallBehavior(comptime T: type) (fn (self: *Actor, sys: *System, from: ActorRef, msg: *Any) anyerror!void) {
+        return struct {
+            fn callBehavior(self: *Actor, sys: *System, from: ActorRef, msg: *Any) anyerror!void {
+                const behavior: TypedBehavior(T) = @alignCast(@ptrCast(self.behavior));
+                const state: *T = @alignCast(@ptrCast(self.state));
+
+                return behavior(self, sys, state, from, msg);
+            }
+        }.callBehavior;
+    }
+
+    pub fn become(self: *Actor, comptime T: type, state: T, behavior: TypedBehavior(T)) !void {
+        self.behavior = toOpaque(T, behavior);
+        self.call_behavior = Actor.makeCallBehavior(T);
+
+        const state_ptr = try self.allocator.create(T);
+        state_ptr.* = state;
+        self.state = @ptrCast(state_ptr);
+    }
+
+    pub fn init(allocator: Allocator, comptime T: type, state: T, behavior: TypedBehavior(T)) !*Actor {
         var actor = try allocator.create(Actor);
-        actor.behavior = toOpaque(behavior);
-        actor.state = state;
-        actor.last_behavior = null;
+        actor.behavior = toOpaque(T, behavior);
+        actor.call_behavior = Actor.makeCallBehavior(T);
+
+        const state_ptr = try allocator.create(T);
+        state_ptr.* = state;
+        actor.state = @ptrCast(state_ptr);
 
         return actor;
     }
 
     pub fn deinit(self: *Actor) void {
         self.state.deinit();
-    }
-
-    pub fn become(self: *Actor, behavior: Behavior) void {
-        self.last_behavior = self.behavior;
-        self.behavior = toOpaque(behavior);
-    }
-
-    pub fn unbecome(self: *Actor) void {
-        if (self.last_behavior) |b| {
-            self.behavior = b;
-            self.last_behavior = null;
-        }
     }
 };
 
@@ -133,8 +141,7 @@ pub const Scheduler = struct {
             if (self.sema.timedWait(1_000_000)) |_| {
                 for (self.mailboxes.items) |mb| {
                     if (mb.queue.pop()) |env| {
-                        const behavior: Behavior = fromOpaque(mb.actor.behavior);
-                        try behavior(mb.actor, self.system, &mb.actor.state, env.from, &env.msg);
+                        mb.actor.call_behavior(mb.actor, self.system, env.from, &env.msg) catch {};
                         if (!env.msg.read) {
                             env.msg.debug(env.msg.ptr);
                         }
@@ -174,10 +181,11 @@ pub const System = struct {
         self.schedulers.deinit();
     }
 
-    pub fn spawn(self: *System, T: type, state: T, behavior: Behavior) !ActorRef {
+    pub fn spawn(self: *System, T: type, state: T, behavior: TypedBehavior(T)) !ActorRef {
         const actor = try Actor.init(
             self.allocator,
-            try any(self.allocator, T, state),
+            T,
+            state,
             behavior,
         );
         const i = self.counter.fetchAdd(1, .monotonic);
@@ -222,7 +230,7 @@ pub const Any = struct {
     debug: *const fn (ptr: erase.AnyPointer) void,
     read: bool,
 
-    pub fn makeDealloc(comptime T: type) (fn (allocator: Allocator, ptr: erase.AnyPointer) void) {
+    fn makeDealloc(comptime T: type) (fn (allocator: Allocator, ptr: erase.AnyPointer) void) {
         return struct {
             fn dealloc(allocator: Allocator, ptr: erase.AnyPointer) void {
                 const p = ptr.cast(*T);
@@ -231,7 +239,7 @@ pub const Any = struct {
         }.dealloc;
     }
 
-    pub fn makeDebug(comptime T: type) (fn (ptr: erase.AnyPointer) void) {
+    fn makeDebug(comptime T: type) (fn (ptr: erase.AnyPointer) void) {
         return struct {
             fn debug(ptr: erase.AnyPointer) void {
                 const p = ptr.cast(*T);
