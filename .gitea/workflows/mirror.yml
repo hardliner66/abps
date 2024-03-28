@@ -3,7 +3,7 @@ run-name: ${{ gitea.actor }} is testing out Gitea Actions 🚀
 on:
   workflow_dispatch:
   schedule:
-    - cron: "@daily"
+    - cron: "0 0 * * *"
 
 jobs:
   Explore-Gitea-Actions:
