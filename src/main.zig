@@ -23,8 +23,8 @@ fn die(self: *a.Actor, sys: *a.System, from: a.ActorRef, msg: *a.Any) anyerror!v
 fn counting(self: *a.Actor, sys: *a.System, state: *i32, from: a.ActorRef, msg: *a.Any) anyerror!void {
     if (msg.matches(i32)) |v| {
         state.* += v;
-        if (state.* < 10_000_000 / 2) {
-            try sys.send(self.ref, from, i32, 1);
+        if (state.* < 5_000_000) {
+            try sys.send(self.ref, from, i32, v);
         } else {
             print("Done: {}\n", .{state.*});
             try self.becomeStateless(&die);

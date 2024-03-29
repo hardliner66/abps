@@ -199,17 +199,16 @@ pub const Scheduler = struct {
 
     fn work(self: *Scheduler) !void {
         while (self.running.load(.monotonic)) {
-            if (self.sema.timedWait(1_000_000)) |_| {
-                for (self.mailboxes.items) |mb| {
-                    if (mb.queue.pop()) |env| {
-                        mb.actor.call_behavior(mb.actor, self.system, env.from, &env.msg) catch {};
-                        if (!env.msg.read) {
-                            env.msg.debug(mb.actor, env.msg.ptr);
-                        }
-                        env.msg.deinit();
+            self.sema.wait();
+            for (self.mailboxes.items) |mb| {
+                if (mb.queue.pop()) |env| {
+                    mb.actor.call_behavior(mb.actor, self.system, env.from, &env.msg) catch {};
+                    if (!env.msg.read) {
+                        env.msg.debug(mb.actor, env.msg.ptr);
                     }
+                    env.msg.deinit();
                 }
-            } else |_| {}
+            }
         }
     }
 };
