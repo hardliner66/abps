@@ -3,7 +3,6 @@
 #include <pthread.h>
 #include <sched.h>
 
-
 int set_affinity(size_t cpu) {
     cpu_set_t cpuset;
 
