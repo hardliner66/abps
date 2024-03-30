@@ -2,6 +2,7 @@ const std = @import("std");
 const eql = std.mem.eql;
 const a = @import("actor.zig");
 const helper = @import("helper");
+const clap = @import("clap");
 const println = helper.println;
 const eprintln = helper.eprintln;
 
@@ -35,24 +36,47 @@ fn initial(self: *a.Actor, _: *a.System, _: a.ActorRef, msg: *a.Any) anyerror!vo
 }
 
 pub fn main() !void {
+    const params = comptime clap.parseParamsComptime(
+        \\-h                     Display this help and exit.
+        \\    --help             Display this help and exit.
+        \\-d, --debug            An option parameter, which takes a value.
+        \\-s, --sema             An option parameter which can be specified multiple times.
+    );
+
     var allocator = std.heap.c_allocator;
 
-    var argsIterator = try std.process.ArgIterator.initWithAllocator(allocator);
-    defer argsIterator.deinit();
+    var diag = clap.Diagnostic{};
+    var res = clap.parse(clap.Help, &params, clap.parsers.default, .{
+        .diagnostic = &diag,
+        .allocator = allocator,
+    }) catch |err| {
+        // Report useful error and exit
+        diag.report(std.io.getStdErr().writer(), err) catch {};
+        _ = try clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
+        return err;
+    };
+    defer res.deinit();
 
-    // Skip executable
-    _ = argsIterator.next();
-
-    // Handle cases accordingly
-    while (argsIterator.next()) |arg| {
-        if (eql(u8, arg, "--debug")) {
-            var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-            allocator = gpa.allocator();
-            println("DEBUG MODE", .{});
-        }
+    if (res.args.help != 0) {
+        return clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
     }
 
-    var system = try a.System.init(allocator, .{ .cpu_count = null });
+    if (res.args.h != 0) {
+        return clap.usage(std.io.getStdErr().writer(), clap.Help, &params);
+    }
+
+    if (res.args.debug != 0) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        allocator = gpa.allocator();
+        println("DEBUG MODE", .{});
+    }
+
+    const sema = res.args.sema != 0;
+    if (sema) {
+        println("SEMAPHORE MODE", .{});
+    }
+
+    var system = try a.System.init(allocator, .{ .cpu_count = null, .use_semaphore = sema });
     defer system.deinit() catch {};
 
     const ref_1 = try system.spawnWithNameStateless("Counting Actor 1", &initial);

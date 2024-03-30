@@ -174,16 +174,21 @@ pub const Scheduler = struct {
     worker: std.Thread,
     system: *System,
     cpu: usize,
-    // sema: std.Thread.Semaphore,
+    sema: ?std.Thread.Semaphore,
 
-    pub fn init(allocator: Allocator, system: *System, cpu: usize) !*@This() {
+    pub fn init(
+        allocator: Allocator,
+        system: *System,
+        cpu: usize,
+        use_semaphore: bool,
+    ) !*@This() {
         var scheduler = try allocator.create(Scheduler);
 
         scheduler.mailboxes = std.ArrayList(*Mailbox).init(allocator);
         scheduler.running = std.atomic.Value(bool).init(true);
         scheduler.system = system;
         scheduler.cpu = cpu;
-        // scheduler.sema = std.Thread.Semaphore{};
+        scheduler.sema = if (use_semaphore) std.Thread.Semaphore{} else null;
 
         const worker = try std.Thread.spawn(.{ .allocator = allocator }, work, .{scheduler});
         scheduler.worker = worker;
@@ -200,7 +205,9 @@ pub const Scheduler = struct {
 
     pub fn stop(self: *Scheduler) void {
         self.running.store(false, .monotonic);
-        // self.sema.post();
+        if (self.sema) |*sema| {
+            sema.post();
+        }
     }
 
     pub fn wait(self: *Scheduler) void {
@@ -210,7 +217,9 @@ pub const Scheduler = struct {
     fn work(self: *Scheduler) !void {
         _ = aff.set_affinity(self.cpu);
         while (self.running.load(.monotonic)) {
-            // self.sema.wait();
+            if (self.sema) |*sema| {
+                sema.wait();
+            }
             for (self.mailboxes.items) |mb| {
                 if (mb.queue.pop()) |env| {
                     mb.actor.call_behavior(mb.actor, self.system, env.from, &env.msg) catch {};
@@ -226,6 +235,7 @@ pub const Scheduler = struct {
 
 pub const SystemOptions = struct {
     cpu_count: ?usize,
+    use_semaphore: bool,
 };
 
 pub const System = struct {
@@ -243,6 +253,7 @@ pub const System = struct {
                 allocator,
                 system,
                 i,
+                options.use_semaphore,
             ));
         }
         system.allocator = allocator;

@@ -15,6 +15,12 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
+    const clap = b.createModule(.{
+        .root_source_file = .{ .path = "extern/zig-clap/clap.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+
     const helper = b.createModule(.{
         .root_source_file = .{ .path = "modules/helper/helper.zig" },
         .target = target,
@@ -29,6 +35,7 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.root_module.addImport("helper", helper);
+    exe.root_module.addImport("clap", clap);
 
     const release_flags = [_][]const u8{};
     const debug_flags = [_][]const u8{"-O3"};
