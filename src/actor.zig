@@ -3,6 +3,15 @@ const mem = std.mem;
 const erase = @import("erase.zig");
 const lfq = @import("lfqueue.zig");
 
+const helper = @import("helper");
+const print = helper.print;
+const eprint = helper.eprint;
+
+const aff = @cImport({
+    @cInclude("affinity.h");
+});
+const affZ = @import("affinity");
+
 const Allocator = mem.Allocator;
 
 pub fn TypedBehavior(comptime T: type) type {
@@ -165,15 +174,17 @@ pub const Scheduler = struct {
     running: std.atomic.Value(bool),
     worker: std.Thread,
     system: *System,
-    sema: std.Thread.Semaphore,
+    cpu: usize,
+    // sema: std.Thread.Semaphore,
 
-    pub fn init(allocator: Allocator, system: *System) !*@This() {
+    pub fn init(allocator: Allocator, system: *System, cpu: usize) !*@This() {
         var scheduler = try allocator.create(Scheduler);
 
         scheduler.mailboxes = std.ArrayList(*Mailbox).init(allocator);
         scheduler.running = std.atomic.Value(bool).init(true);
         scheduler.system = system;
-        scheduler.sema = std.Thread.Semaphore{};
+        scheduler.cpu = cpu;
+        // scheduler.sema = std.Thread.Semaphore{};
 
         const worker = try std.Thread.spawn(.{ .allocator = allocator }, work, .{scheduler});
         scheduler.worker = worker;
@@ -190,7 +201,7 @@ pub const Scheduler = struct {
 
     pub fn stop(self: *Scheduler) void {
         self.running.store(false, .monotonic);
-        self.sema.post();
+        // self.sema.post();
     }
 
     pub fn wait(self: *Scheduler) void {
@@ -198,8 +209,10 @@ pub const Scheduler = struct {
     }
 
     fn work(self: *Scheduler) !void {
+        _ = aff.set_affinity(self.cpu);
+        // try affZ.printAffinity();
         while (self.running.load(.monotonic)) {
-            self.sema.wait();
+            // self.sema.wait();
             for (self.mailboxes.items) |mb| {
                 if (mb.queue.pop()) |env| {
                     mb.actor.call_behavior(mb.actor, self.system, env.from, &env.msg) catch {};
@@ -218,14 +231,15 @@ pub const System = struct {
     allocator: Allocator,
     counter: std.atomic.Value(usize),
 
-    pub fn init(allocator: Allocator) !*@This() {
+    pub fn init(allocator: Allocator, cpu_count: ?usize) !*@This() {
         var system = try allocator.create(System);
         var schedulers = std.ArrayList(*Scheduler).init(allocator);
-        const cpu_count = try std.Thread.getCpuCount();
-        for (0..cpu_count) |_| {
+        const cpucount = cpu_count orelse try std.Thread.getCpuCount();
+        for (0..cpucount) |i| {
             try schedulers.append(try Scheduler.init(
                 allocator,
                 system,
+                i,
             ));
         }
         system.allocator = allocator;
@@ -247,6 +261,12 @@ pub const System = struct {
         return ref;
     }
 
+    pub fn spawnWithNameStateless(self: *System, name: []const u8, behavior: StatelessBehavior) !ActorRef {
+        const ref = try self.spawnStateless(behavior);
+        ref.ref.actor.name = name;
+        return ref;
+    }
+
     pub fn spawn(self: *System, T: type, state: T, behavior: TypedBehavior(T)) !ActorRef {
         const actor = try Actor.init(
             self.allocator,
@@ -256,7 +276,21 @@ pub const System = struct {
         );
         const i = self.counter.fetchAdd(1, .monotonic);
         const mb = try Mailbox.init(self.allocator, actor, self.schedulers.items[i]);
-        try self.schedulers.items[i].mailboxes.append(mb);
+        try self.schedulers.items[i % self.schedulers.items.len].mailboxes.append(mb);
+
+        const ref = ActorRef{ .ref = mb };
+        actor.ref = ref;
+        return ref;
+    }
+
+    pub fn spawnStateless(self: *System, behavior: StatelessBehavior) !ActorRef {
+        const actor = try Actor.initStateless(
+            self.allocator,
+            behavior,
+        );
+        const i = self.counter.fetchAdd(1, .monotonic);
+        const mb = try Mailbox.init(self.allocator, actor, self.schedulers.items[i]);
+        try self.schedulers.items[i % self.schedulers.items.len].mailboxes.append(mb);
 
         const ref = ActorRef{ .ref = mb };
         actor.ref = ref;
@@ -279,7 +313,7 @@ pub const System = struct {
             value,
         );
         try to.ref.queue.push(m);
-        to.ref.scheduler.sema.post();
+        // to.ref.scheduler.sema.post();
     }
 
     pub fn stop(self: *System) void {
@@ -288,26 +322,6 @@ pub const System = struct {
         }
     }
 };
-
-fn print(comptime format: []const u8, args: anytype) void {
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
-
-    stdout.print(format, args) catch {};
-
-    bw.flush() catch {};
-}
-
-fn eprint(comptime format: []const u8, args: anytype) void {
-    const stdout_file = std.io.getStdErr().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
-
-    stdout.print(format, args) catch {};
-
-    bw.flush() catch {};
-}
 
 pub const Any = struct {
     ptr: erase.AnyPointer,

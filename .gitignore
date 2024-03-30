@@ -4,3 +4,4 @@
 .pijul
 zig-cache
 zig-out
+profile.json
