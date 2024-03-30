@@ -18,7 +18,7 @@ fn counting(self: *a.Actor, sys: *a.System, state: *a.ActorRef, _: a.ActorRef, m
         state.* = r;
     }
     if (msg.matches(i32)) |v| {
-        if (v < 5_000_000) {
+        if (v < 10_000_000) {
             try sys.send(self.ref, state.*, i32, v + 1);
         } else {
             println("Done: {}", .{v});
