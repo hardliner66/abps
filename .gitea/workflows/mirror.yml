@@ -1,7 +1,6 @@
 name: Gitea Actions Demo
 run-name: ${{ gitea.actor }} is testing out Gitea Actions 🚀
 on:
-  workflow_dispatch:
   schedule:
     - cron: "0 0 * * *"
 
