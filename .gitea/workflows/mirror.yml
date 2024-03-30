@@ -1,12 +1,12 @@
 name: Gitea Actions Demo
 run-name: ${{ gitea.actor }} is testing out Gitea Actions 🚀
 on:
-  schedule:
-    - cron: "0 0 * * *"
+  issue_comment:
 
 jobs:
   Explore-Gitea-Actions:
     runs-on: ubuntu-latest
+    if: ${{ github.event.comment.body == '!actions mirror' || github.event.comment.body == '!actions run all' }}
     steps:
       - uses: actions/checkout@v2
       - name: Mirror Repository
