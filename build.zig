@@ -21,21 +21,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    // Conditionally add OS-specific source files
-    const importPath =
-        if (target.result.os.tag == .windows)
-        "modules/affinity/win/affinity.zig"
-    else
-        "modules/affinity/linux/affinity.zig";
-
-    const affinity = b.createModule(.{
-        .root_source_file = .{ .path = importPath },
-        .target = target,
-        .optimize = optimize,
-    });
-
-    affinity.addImport("helper", helper);
-
     const exe = b.addExecutable(.{
         .name = "abps",
         .root_source_file = .{ .path = "src/main.zig" },
@@ -43,7 +28,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    exe.root_module.addImport("affinity", affinity);
     exe.root_module.addImport("helper", helper);
 
     const release_flags = [_][]const u8{};

@@ -2,8 +2,8 @@ const std = @import("std");
 const eql = std.mem.eql;
 const a = @import("actor.zig");
 const helper = @import("helper");
-const print = helper.print;
-const eprint = helper.eprint;
+const println = helper.println;
+const eprintln = helper.eprintln;
 
 fn die(self: *a.Actor, sys: *a.System, from: a.ActorRef, msg: *a.Any) anyerror!void {
     _ = self;
@@ -21,7 +21,7 @@ fn counting(self: *a.Actor, sys: *a.System, state: *a.ActorRef, _: a.ActorRef, m
         if (v < 5_000_000) {
             try sys.send(self.ref, state.*, i32, v + 1);
         } else {
-            print("Done: {}\n", .{v});
+            println("Done: {}", .{v});
             try self.becomeStateless(&die);
             try sys.send(self.ref, self.ref, void, {});
         }
@@ -48,11 +48,11 @@ pub fn main() !void {
         if (eql(u8, arg, "--debug")) {
             var gpa = std.heap.GeneralPurposeAllocator(.{}){};
             allocator = gpa.allocator();
-            print("DEBUG MODE\n", .{});
+            println("DEBUG MODE", .{});
         }
     }
 
-    var system = try a.System.init(allocator, null);
+    var system = try a.System.init(allocator, .{ .cpu_count = null });
     defer system.deinit() catch {};
 
     const ref_1 = try system.spawnWithNameStateless("Counting Actor 1", &initial);

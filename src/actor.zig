@@ -4,13 +4,12 @@ const erase = @import("erase.zig");
 const lfq = @import("lfqueue.zig");
 
 const helper = @import("helper");
-const print = helper.print;
-const eprint = helper.eprint;
+const println = helper.println;
+const eprintln = helper.eprintln;
 
 const aff = @cImport({
     @cInclude("affinity.h");
 });
-const affZ = @import("affinity");
 
 const Allocator = mem.Allocator;
 
@@ -210,7 +209,6 @@ pub const Scheduler = struct {
 
     fn work(self: *Scheduler) !void {
         _ = aff.set_affinity(self.cpu);
-        // try affZ.printAffinity();
         while (self.running.load(.monotonic)) {
             // self.sema.wait();
             for (self.mailboxes.items) |mb| {
@@ -226,16 +224,21 @@ pub const Scheduler = struct {
     }
 };
 
+pub const SystemOptions = struct {
+    cpu_count: ?usize,
+};
+
 pub const System = struct {
     schedulers: std.ArrayList(*Scheduler),
     allocator: Allocator,
     counter: std.atomic.Value(usize),
 
-    pub fn init(allocator: Allocator, cpu_count: ?usize) !*@This() {
+    pub fn init(allocator: Allocator, options: SystemOptions) !*@This() {
         var system = try allocator.create(System);
         var schedulers = std.ArrayList(*Scheduler).init(allocator);
-        const cpucount = cpu_count orelse try std.Thread.getCpuCount();
-        for (0..cpucount) |i| {
+        const cpu_count = options.cpu_count orelse try std.Thread.getCpuCount();
+        eprintln("Spawning {} scheduler threads!", .{cpu_count});
+        for (0..cpu_count) |i| {
             try schedulers.append(try Scheduler.init(
                 allocator,
                 system,
@@ -344,12 +347,12 @@ pub const Any = struct {
             fn debug(actor: *Actor, ptr: erase.AnyPointer) void {
                 const name = actor.name orelse "<unnamed>";
                 if (ptr.tryCast(*[]const u8)) |s| {
-                    eprint("Message was not handled by {*}.\"{s}\": {s}\n", .{ actor, name, s.* });
+                    eprintln("Message was not handled by {*}.\"{s}\": {s}", .{ actor, name, s.* });
                 } else if (ptr.tryCast(*[]u8)) |s| {
-                    eprint("Message was not handled by {*}.\"{s}\": {s}\n", .{ actor, name, s.* });
+                    eprintln("Message was not handled by {*}.\"{s}\": {s}", .{ actor, name, s.* });
                 } else {
                     const p = ptr.cast(*T);
-                    eprint("Message was not handled by {*}.\"{s}\": {any}\n", .{ actor, name, p.* });
+                    eprintln("Message was not handled by {*}.\"{s}\": {any}", .{ actor, name, p.* });
                 }
             }
         }.debug;
