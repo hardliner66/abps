@@ -27,6 +27,37 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const containers = b.createModule(.{
+        .root_source_file = .{ .path = "modules/containers/containers.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const release_flags = [_][]const u8{};
+    const debug_flags = [_][]const u8{"-O3"};
+    const flags = if (optimize == .Debug) &debug_flags else &release_flags;
+
+    containers.addIncludePath(.{ .path = "extern/concurrentqueue" });
+    containers.addIncludePath(.{ .path = "extern/concurrentqueue/c_api" });
+    containers.addIncludePath(.{ .path = "extern/concurrentqueue/internal" });
+    containers.addCSourceFile(.{
+        .file = .{ .path = "extern/concurrentqueue/c_api/concurrentqueue.cpp" },
+        .flags = flags,
+    });
+
+    const actor = b.createModule(.{
+        .root_source_file = .{ .path = "modules/actor/actor.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+    if (target.result.os.tag == .windows) {
+        actor.addIncludePath(.{ .path = "c/win" });
+    } else {
+        actor.addIncludePath(.{ .path = "c/linux" });
+    }
+    actor.addImport("helper", helper);
+    actor.addImport("containers", containers);
+
     const exe = b.addExecutable(.{
         .name = "abps",
         .root_source_file = .{ .path = "src/main.zig" },
@@ -36,25 +67,9 @@ pub fn build(b: *std.Build) void {
 
     exe.root_module.addImport("helper", helper);
     exe.root_module.addImport("clap", clap);
-
-    const release_flags = [_][]const u8{};
-    const debug_flags = [_][]const u8{"-O3"};
-    const flags = if (optimize == .Debug) &debug_flags else &release_flags;
+    exe.root_module.addImport("actor", actor);
 
     exe.linkLibCpp();
-    exe.addIncludePath(.{ .path = "extern/concurrentqueue" });
-    exe.addIncludePath(.{ .path = "extern/concurrentqueue/c_api" });
-    exe.addIncludePath(.{ .path = "extern/concurrentqueue/internal" });
-    exe.addCSourceFile(.{
-        .file = .{ .path = "extern/concurrentqueue/c_api/concurrentqueue.cpp" },
-        .flags = flags,
-    });
-
-    if (target.result.os.tag == .windows) {
-        exe.addIncludePath(.{ .path = "c/win" });
-    } else {
-        exe.addIncludePath(.{ .path = "c/linux" });
-    }
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default

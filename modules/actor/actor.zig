@@ -1,17 +1,17 @@
 const std = @import("std");
 const mem = std.mem;
+const Allocator = mem.Allocator;
 const erase = @import("erase.zig");
-const lfq = @import("lfqueue.zig");
 
 const helper = @import("helper");
 const println = helper.println;
 const eprintln = helper.eprintln;
 
+const containers = @import("containers");
+
 const aff = @cImport({
     @cInclude("affinity.h");
 });
-
-const Allocator = mem.Allocator;
 
 pub fn TypedBehavior(comptime T: type) type {
     return *const fn (self: *Actor, sys: *System, state: *T, from: ActorRef, msg: *Any) anyerror!void;
@@ -148,14 +148,14 @@ pub const Envelope = struct {
 
 pub const Mailbox = struct {
     actor: *Actor,
-    queue: lfq.LfQueue(*Envelope),
+    queue: containers.LfQueue(*Envelope),
     scheduler: *Scheduler,
 
     pub fn init(allocator: Allocator, actor: *Actor, scheduler: *Scheduler) !*@This() {
         var mb = try allocator.create(Mailbox);
 
         mb.actor = actor;
-        mb.queue = lfq.LfQueue(*Envelope).init(allocator);
+        mb.queue = containers.LfQueue(*Envelope).init(allocator);
         mb.scheduler = scheduler;
 
         return mb;
@@ -169,6 +169,8 @@ pub const Mailbox = struct {
 };
 
 pub const Scheduler = struct {
+    new_mailboxes: std.ArrayList(*Mailbox),
+    new_mailboxes_lock: std.Thread.Mutex,
     mailboxes: std.ArrayList(*Mailbox),
     running: std.atomic.Value(bool),
     worker: std.Thread,
@@ -185,6 +187,8 @@ pub const Scheduler = struct {
         var scheduler = try allocator.create(Scheduler);
 
         scheduler.mailboxes = std.ArrayList(*Mailbox).init(allocator);
+        scheduler.new_mailboxes = std.ArrayList(*Mailbox).init(allocator);
+        scheduler.new_mailboxes_lock = .{};
         scheduler.running = std.atomic.Value(bool).init(true);
         scheduler.system = system;
         scheduler.cpu = cpu;
@@ -217,6 +221,12 @@ pub const Scheduler = struct {
     fn work(self: *Scheduler) !void {
         _ = aff.set_affinity(self.cpu);
         while (self.running.load(.monotonic)) {
+            if (self.new_mailboxes.items.len > 0 and self.new_mailboxes_lock.tryLock()) {
+                defer self.new_mailboxes_lock.unlock();
+                while (self.new_mailboxes.popOrNull()) |mb| {
+                    try self.mailboxes.append(mb);
+                }
+            }
             if (self.sema) |*sema| {
                 sema.wait();
             }
@@ -281,6 +291,20 @@ pub const System = struct {
         return ref;
     }
 
+    fn createRefAndAdd(self: *System, actor: *Actor) !ActorRef {
+        const i = self.counter.fetchAdd(1, .monotonic);
+        const mb = try Mailbox.init(self.allocator, actor, self.schedulers.items[i]);
+
+        var scheduler = self.schedulers.items[i % self.schedulers.items.len];
+        scheduler.new_mailboxes_lock.lock();
+        defer scheduler.new_mailboxes_lock.unlock();
+        try scheduler.new_mailboxes.append(mb);
+
+        const ref = ActorRef{ .ref = mb };
+        actor.ref = ref;
+        return ref;
+    }
+
     pub fn spawn(self: *System, T: type, state: T, behavior: TypedBehavior(T)) !ActorRef {
         const actor = try Actor.init(
             self.allocator,
@@ -288,13 +312,8 @@ pub const System = struct {
             state,
             behavior,
         );
-        const i = self.counter.fetchAdd(1, .monotonic);
-        const mb = try Mailbox.init(self.allocator, actor, self.schedulers.items[i]);
-        try self.schedulers.items[i % self.schedulers.items.len].mailboxes.append(mb);
 
-        const ref = ActorRef{ .ref = mb };
-        actor.ref = ref;
-        return ref;
+        return try self.createRefAndAdd(actor);
     }
 
     pub fn spawnStateless(self: *System, behavior: StatelessBehavior) !ActorRef {
@@ -302,13 +321,8 @@ pub const System = struct {
             self.allocator,
             behavior,
         );
-        const i = self.counter.fetchAdd(1, .monotonic);
-        const mb = try Mailbox.init(self.allocator, actor, self.schedulers.items[i]);
-        try self.schedulers.items[i % self.schedulers.items.len].mailboxes.append(mb);
 
-        const ref = ActorRef{ .ref = mb };
-        actor.ref = ref;
-        return ref;
+        return try self.createRefAndAdd(actor);
     }
 
     pub fn wait(self: *System) void {

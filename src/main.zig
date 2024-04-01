@@ -1,6 +1,6 @@
 const std = @import("std");
 const eql = std.mem.eql;
-const a = @import("actor.zig");
+const a = @import("actor");
 const helper = @import("helper");
 const clap = @import("clap");
 const println = helper.println;
