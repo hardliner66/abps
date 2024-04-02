@@ -221,7 +221,7 @@ pub const Scheduler = struct {
     fn work(self: *Scheduler) !void {
         _ = aff.set_affinity(self.cpu);
         while (self.running.load(.monotonic)) {
-            if (self.new_mailboxes.items.len > 0 and self.new_mailboxes_lock.tryLock()) {
+            if (self.new_mailboxes_lock.tryLock()) {
                 defer self.new_mailboxes_lock.unlock();
                 while (self.new_mailboxes.popOrNull()) |mb| {
                     try self.mailboxes.append(mb);
