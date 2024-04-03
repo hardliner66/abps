@@ -1,4 +1,5 @@
 const std = @import("std");
+const fmt = std.fmt;
 const eql = std.mem.eql;
 const a = @import("actor");
 const helper = @import("helper");
@@ -56,10 +57,10 @@ pub fn main() !void {
     const tracy_zone = ztracy.Zone(@src());
     defer tracy_zone.End();
     const params = comptime clap.parseParamsComptime(
-        \\-h                       Display this help and exit.
-        \\    --help               Display this help and exit.
-        \\-d, --debug              An option parameter, which takes a value.
-        \\-c, --cpucount <usize>  How many schedulers to spawn.
+        \\-h                           Display this help and exit.
+        \\    --help                   Display this help and exit.
+        \\-d, --debug                  An option parameter, which takes a value.
+        \\-c, --cpu_count <usize>      How many schedulers to spawn.
     );
 
     var allocator = std.heap.c_allocator;
@@ -89,29 +90,28 @@ pub fn main() !void {
         allocator = gpa.allocator();
     }
 
-    var system = try a.System.init(allocator, .{ .cpu_count = res.args.cpucount });
+    const cpu_count = res.args.cpu_count orelse try std.Thread.getCpuCount();
+
+    var system = try a.System.init(allocator, .{ .cpu_count = cpu_count });
     defer system.deinit() catch {};
 
-    const ref_1 = try system.spawnWithNameStateless("Counting Actor 1", &initial);
-    const ref_2 = try system.spawnWithName("Counting Actor 2", a.ActorRef, ref_1, &counting);
-    const ref_3 = try system.spawnWithName("Counting Actor 3", a.ActorRef, ref_2, &counting);
-    const ref_4 = try system.spawnWithName("Counting Actor 4", a.ActorRef, ref_3, &counting);
-    // const ref_5 = try system.spawnWithName("Counting Actor 5", a.ActorRef, ref_4, &counting);
-    // const ref_6 = try system.spawnWithName("Counting Actor 6", a.ActorRef, ref_5, &counting);
-    // const ref_7 = try system.spawnWithName("Counting Actor 7", a.ActorRef, ref_6, &counting);
-    // const ref_8 = try system.spawnWithName("Counting Actor 8", a.ActorRef, ref_7, &counting);
-    // const ref_9 = try system.spawnWithName("Counting Actor 9", a.ActorRef, ref_8, &counting);
-    // const ref_10 = try system.spawnWithName("Counting Actor 10", a.ActorRef, ref_9, &counting);
-    // const ref_11 = try system.spawnWithName("Counting Actor 11", a.ActorRef, ref_10, &counting);
-    // const ref_12 = try system.spawnWithName("Counting Actor 12", a.ActorRef, ref_11, &counting);
-    // const ref_13 = try system.spawnWithName("Counting Actor 13", a.ActorRef, ref_12, &counting);
-    // const ref_14 = try system.spawnWithName("Counting Actor 14", a.ActorRef, ref_13, &counting);
-    // const ref_15 = try system.spawnWithName("Counting Actor 15", a.ActorRef, ref_14, &counting);
-    // const ref_16 = try system.spawnWithName("Counting Actor 16", a.ActorRef, ref_15, &counting);
-    try system.send(ref_1, ref_1, []const u8, "test");
-    // try system.send(ref_1, ref_1, a.ActorRef, ref_16);
-    try system.send(ref_1, ref_1, a.ActorRef, ref_4);
-    try system.send(ref_1, ref_1, i32, 1);
+    const first = try system.spawnWithNameStateless("Counting Actor 1", &initial);
+    var last: a.ActorRef = first;
+    for (0..cpu_count - 1) |i| {
+        var all_together: [100]u8 = undefined;
+        // You can use slice syntax with at least one runtime-known index on an
+        // array to convert an array into a slice.
+        var start: usize = 0;
+        _ = &start;
+        const all_together_slice = all_together[start..];
+        // String concatenation example.
+        const hello_world = try fmt.bufPrint(all_together_slice, "Counting Actor {}", .{i + 2});
+
+        last = try system.spawnWithName(hello_world, a.ActorRef, last, &counting);
+    }
+    try system.send(first, first, []const u8, "test");
+    try system.send(first, first, a.ActorRef, last);
+    try system.send(first, first, i32, 1);
 
     system.wait();
 }

@@ -15,12 +15,15 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
+    const use_tracy = b.option(bool, "use_tracy", "enable tracy") orelse false;
+
     const use_semaphore = b.option(bool, "use_semaphore", "should a semaphore be used") orelse false;
     const use_lfqueue = b.option(bool, "use_lfqueue", "should a lfqueue be used") orelse false;
 
     const actor_options = b.addOptions();
     actor_options.addOption(bool, "use_semaphore", use_semaphore);
     actor_options.addOption(bool, "use_lfqueue", use_lfqueue);
+    actor_options.addOption(bool, "use_tracy", use_tracy);
 
     const clap = b.createModule(.{
         .root_source_file = .{ .path = "extern/zig-clap/clap.zig" },
@@ -29,8 +32,9 @@ pub fn build(b: *std.Build) void {
     });
 
     const ztracy = b.dependency("ztracy", .{
-        .enable_ztracy = true,
+        .enable_ztracy = use_tracy,
         .enable_fibers = false,
+        .on_demand = false,
     });
     const ztracy_module = ztracy.module("root");
 
@@ -90,6 +94,7 @@ pub fn build(b: *std.Build) void {
     const use_gpa = b.option(bool, "use_gpa", "if gpa should be used as allocator") orelse false;
     options.addOption(u32, "max_messages", messages);
     options.addOption(bool, "use_gpa", use_gpa);
+    options.addOption(bool, "use_tracy", use_tracy);
 
     exe.root_module.addImport("helper", helper);
     exe.root_module.addImport("clap", clap);
