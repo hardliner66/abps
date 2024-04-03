@@ -17,11 +17,9 @@ pub fn build(b: *std.Build) void {
 
     const use_tracy = b.option(bool, "use_tracy", "enable tracy") orelse false;
 
-    const use_semaphore = b.option(bool, "use_semaphore", "should a semaphore be used") orelse false;
     const use_lfqueue = b.option(bool, "use_lfqueue", "should a lfqueue be used") orelse false;
 
     const actor_options = b.addOptions();
-    actor_options.addOption(bool, "use_semaphore", use_semaphore);
     actor_options.addOption(bool, "use_lfqueue", use_lfqueue);
     actor_options.addOption(bool, "use_tracy", use_tracy);
 
@@ -90,10 +88,6 @@ pub fn build(b: *std.Build) void {
     exe.linkLibrary(ztracy.artifact("tracy"));
 
     const options = b.addOptions();
-    const messages = b.option(u32, "max_messages", "how many messages") orelse 1000;
-    const use_gpa = b.option(bool, "use_gpa", "if gpa should be used as allocator") orelse false;
-    options.addOption(u32, "max_messages", messages);
-    options.addOption(bool, "use_gpa", use_gpa);
     options.addOption(bool, "use_tracy", use_tracy);
 
     exe.root_module.addImport("helper", helper);

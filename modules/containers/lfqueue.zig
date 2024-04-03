@@ -1,7 +1,6 @@
 const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
-const ztracy = @import("ztracy");
 const cq = @cImport({
     @cInclude("c_api/concurrentqueue.h");
 });
@@ -21,8 +20,6 @@ pub fn LfQueue(comptime T: type) type {
         allocator: Allocator,
 
         pub fn init(allocator: Allocator) Self {
-            const tracy_zone = ztracy.Zone(@src());
-            defer tracy_zone.End();
             var lfq: *void = undefined;
             _ = cq.moodycamel_cq_create(@ptrCast(&lfq));
             return .{
@@ -32,8 +29,6 @@ pub fn LfQueue(comptime T: type) type {
         }
 
         pub fn push(self: *Self, value: T) !void {
-            const tracy_zone = ztracy.Zone(@src());
-            defer tracy_zone.End();
             if (isPointer(T)) {
                 _ = cq.moodycamel_cq_enqueue(self.lfq, @ptrCast(value));
             } else {
@@ -44,8 +39,6 @@ pub fn LfQueue(comptime T: type) type {
         }
 
         pub fn pop(self: *Self) ?T {
-            const tracy_zone = ztracy.Zone(@src());
-            defer tracy_zone.End();
             if (isPointer(T)) {
                 var v: T = undefined;
                 if (cq.moodycamel_cq_try_dequeue(self.lfq, @ptrCast(&v)) != 0) {
@@ -63,8 +56,6 @@ pub fn LfQueue(comptime T: type) type {
         }
 
         pub fn deinit(self: *Self) void {
-            const tracy_zone = ztracy.Zone(@src());
-            defer tracy_zone.End();
             _ = cq.moodycamel_cq_destroy(@ptrCast(self.lfq));
         }
     };

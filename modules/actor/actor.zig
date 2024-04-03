@@ -174,22 +174,18 @@ pub const Envelope = struct {
     }
 };
 
-fn Queue(comptime T: type) type {
-    return if (config.use_lfqueue) containers.Queue(T) else containers.LfQueue(T);
-}
-
 pub const Mailbox = struct {
     actor: *Actor,
-    queue: Queue(*Envelope),
+    queue: containers.Queue(*Envelope),
     scheduler: *Scheduler,
 
-    pub fn init(allocator: Allocator, actor: *Actor, scheduler: *Scheduler) !*@This() {
+    pub fn init(allocator: Allocator, actor: *Actor, scheduler: *Scheduler, locked: bool) !*@This() {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
         var mb = try allocator.create(Mailbox);
 
         mb.actor = actor;
-        mb.queue = Queue(*Envelope).init(allocator);
+        mb.queue = containers.Queue(*Envelope).init(allocator, locked);
         mb.scheduler = scheduler;
 
         return mb;
@@ -212,7 +208,6 @@ pub const Scheduler = struct {
     worker: std.Thread,
     system: *System,
     cpu: usize,
-    sema: ?std.Thread.Semaphore,
 
     pub fn init(
         allocator: Allocator,
@@ -229,7 +224,6 @@ pub const Scheduler = struct {
         scheduler.running = std.atomic.Value(bool).init(true);
         scheduler.system = system;
         scheduler.cpu = cpu;
-        scheduler.sema = if (config.use_semaphore) std.Thread.Semaphore{} else null;
 
         const worker = try std.Thread.spawn(.{ .allocator = allocator }, work, .{scheduler});
         scheduler.worker = worker;
@@ -250,9 +244,6 @@ pub const Scheduler = struct {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
         self.running.store(false, .monotonic);
-        if (self.sema) |*sema| {
-            sema.post();
-        }
     }
 
     pub fn wait(self: *Scheduler) void {
@@ -272,9 +263,6 @@ pub const Scheduler = struct {
                     try self.mailboxes.append(mb);
                 }
             }
-            if (self.sema) |*sema| {
-                sema.wait();
-            }
             for (self.mailboxes.items) |mb| {
                 if (mb.queue.pop()) |env| {
                     mb.actor.call_behavior(mb.actor, self.system, env.from, &env.msg) catch {};
@@ -290,12 +278,14 @@ pub const Scheduler = struct {
 
 pub const SystemOptions = struct {
     cpu_count: ?usize,
+    locked: bool,
 };
 
 pub const System = struct {
     schedulers: std.ArrayList(*Scheduler),
     allocator: Allocator,
     counter: std.atomic.Value(usize),
+    options: SystemOptions,
 
     pub fn init(allocator: Allocator, options: SystemOptions) !*@This() {
         const tracy_zone = ztracy.Zone(@src());
@@ -303,7 +293,6 @@ pub const System = struct {
         var system = try allocator.create(System);
         var schedulers = std.ArrayList(*Scheduler).init(allocator);
         const cpu_count = options.cpu_count orelse try std.Thread.getCpuCount();
-        eprintln("Spawning {} scheduler threads!", .{cpu_count});
         for (0..cpu_count) |i| {
             try schedulers.append(try Scheduler.init(
                 allocator,
@@ -314,6 +303,7 @@ pub const System = struct {
         system.allocator = allocator;
         system.schedulers = schedulers;
         system.counter = std.atomic.Value(usize).init(0);
+        system.options = options;
         return system;
     }
 
@@ -346,7 +336,7 @@ pub const System = struct {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
         const i = self.counter.fetchAdd(1, .monotonic);
-        const mb = try Mailbox.init(self.allocator, actor, self.schedulers.items[i % self.schedulers.items.len]);
+        const mb = try Mailbox.init(self.allocator, actor, self.schedulers.items[i % self.schedulers.items.len], self.options.locked);
 
         var scheduler = self.schedulers.items[i % self.schedulers.items.len];
         scheduler.new_mailboxes_lock.lock();
@@ -402,9 +392,6 @@ pub const System = struct {
             value,
         );
         try to.ref.queue.push(m);
-        if (to.ref.scheduler.sema) |*sema| {
-            sema.post();
-        }
     }
 
     pub fn stop(self: *System) void {

@@ -22,21 +22,30 @@ fn die(self: *a.Actor, sys: *a.System, from: a.ActorRef, msg: *a.Any) anyerror!v
 const zigTime = std.time;
 const cTime = @cImport(@cInclude("time.h"));
 
-fn counting(self: *a.Actor, sys: *a.System, state: *a.ActorRef, _: a.ActorRef, msg: *a.Any) anyerror!void {
+const InitialState = struct {
+    max_messages: usize,
+};
+
+const State = struct {
+    max_messages: usize,
+    next: a.ActorRef,
+};
+
+fn counting(self: *a.Actor, sys: *a.System, state: *State, _: a.ActorRef, msg: *a.Any) anyerror!void {
     const tracy_zone = ztracy.Zone(@src());
     defer tracy_zone.End();
     if (msg.matches(a.ActorRef)) |r| {
-        state.* = r;
+        state.next = r;
     }
     if (msg.matches(i32)) |v| {
-        if (v < config.max_messages) {
+        if (v < state.max_messages) {
             // const curtime = zigTime.timestamp();
             // const tm = cTime.localtime(&curtime);
             //
             // var buf: [200]u8 = .{0} ** 200;
             // _ = cTime.strftime(@as([*c]u8, @ptrCast(@alignCast(&buf))), 200, "%H:%M:%S", tm);
             // println("{s}: Working({}): {}", .{ buf, std.Thread.getCurrentId(), v });
-            try sys.send(self.ref, state.*, i32, v + 1);
+            try sys.send(self.ref, state.next, i32, v + 1);
         } else {
             println("Done: {}", .{v});
             try self.becomeStateless(&die);
@@ -45,11 +54,11 @@ fn counting(self: *a.Actor, sys: *a.System, state: *a.ActorRef, _: a.ActorRef, m
     }
 }
 
-fn initial(self: *a.Actor, _: *a.System, _: a.ActorRef, msg: *a.Any) anyerror!void {
+fn initial(self: *a.Actor, _: *a.System, state: *InitialState, _: a.ActorRef, msg: *a.Any) anyerror!void {
     const tracy_zone = ztracy.Zone(@src());
     defer tracy_zone.End();
     if (msg.matches(a.ActorRef)) |r| {
-        try self.become(a.ActorRef, r, &counting);
+        try self.become(State, .{ .next = r, .max_messages = state.max_messages }, &counting);
     }
 }
 
@@ -57,10 +66,13 @@ pub fn main() !void {
     const tracy_zone = ztracy.Zone(@src());
     defer tracy_zone.End();
     const params = comptime clap.parseParamsComptime(
-        \\-h                           Display this help and exit.
+        \\-h                           Display usage and exit.
         \\    --help                   Display this help and exit.
         \\-d, --debug                  An option parameter, which takes a value.
         \\-c, --cpu_count <usize>      How many schedulers to spawn.
+        \\-m, --message_count <usize>  How many messages to send.
+        \\-g, --use_gpa                Use general purpose allocator.
+        \\-l, --locked                 Use locking instead of lock-free queue.
     );
 
     var allocator = std.heap.c_allocator;
@@ -85,17 +97,36 @@ pub fn main() !void {
         return clap.usage(std.io.getStdErr().writer(), clap.Help, &params);
     }
 
-    if (config.use_gpa) {
+    const use_gpa = res.args.use_gpa != 0;
+    if (use_gpa) {
         var gpa = std.heap.GeneralPurposeAllocator(.{}){};
         allocator = gpa.allocator();
     }
 
-    const cpu_count = res.args.cpu_count orelse try std.Thread.getCpuCount();
+    const locked = res.args.locked != 0;
 
-    var system = try a.System.init(allocator, .{ .cpu_count = cpu_count });
+    const cpu_count = res.args.cpu_count orelse try std.Thread.getCpuCount();
+    const message_count = res.args.message_count orelse 1000;
+
+    eprintln("==========================", .{});
+    eprintln("===== Runtime Config =====", .{});
+    eprintln("==========================", .{});
+    eprintln("| Cpu Count    : {}", .{cpu_count});
+    eprintln("| Message Count: {}", .{message_count});
+    eprintln("| Use Gpa      : {}", .{use_gpa});
+    eprintln("| Locked       : {}", .{locked});
+    eprintln("==========================", .{});
+    eprintln("", .{});
+
+    var system = try a.System.init(allocator, .{ .cpu_count = cpu_count, .locked = locked });
     defer system.deinit() catch {};
 
-    const first = try system.spawnWithNameStateless("Counting Actor 1", &initial);
+    const first = try system.spawnWithName(
+        "Counting Actor 1",
+        InitialState,
+        .{ .max_messages = message_count },
+        &initial,
+    );
     var last: a.ActorRef = first;
     for (0..cpu_count - 1) |i| {
         var all_together: [100]u8 = undefined;
@@ -107,7 +138,12 @@ pub fn main() !void {
         // String concatenation example.
         const hello_world = try fmt.bufPrint(all_together_slice, "Counting Actor {}", .{i + 2});
 
-        last = try system.spawnWithName(hello_world, a.ActorRef, last, &counting);
+        last = try system.spawnWithName(
+            hello_world,
+            State,
+            .{ .next = last, .max_messages = message_count },
+            &counting,
+        );
     }
     try system.send(first, first, []const u8, "test");
     try system.send(first, first, a.ActorRef, last);
