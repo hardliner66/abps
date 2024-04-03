@@ -70,7 +70,7 @@ pub fn main() !void {
         \\    --help                   Display this help and exit.
         \\-d, --debug                  An option parameter, which takes a value.
         \\-c, --cpu_count <usize>      How many schedulers to spawn.
-        \\-m, --message_count <usize>  How many messages to send.
+        \\-m, --message_count <usize>  How many messages to send. (Max Value: 999999999)
         \\-g, --use_gpa                Use general purpose allocator.
         \\-l, --locked                 Use locking instead of lock-free queue.
     );
@@ -108,15 +108,20 @@ pub fn main() !void {
     const cpu_count = res.args.cpu_count orelse try std.Thread.getCpuCount();
     const message_count = res.args.message_count orelse 1000;
 
-    eprintln("==========================", .{});
-    eprintln("===== Runtime Config =====", .{});
-    eprintln("==========================", .{});
-    eprintln("| Cpu Count    : {}", .{cpu_count});
-    eprintln("| Message Count: {}", .{message_count});
-    eprintln("| Use Gpa      : {}", .{use_gpa});
-    eprintln("| Locked       : {}", .{locked});
-    eprintln("==========================", .{});
-    eprintln("", .{});
+    if (message_count > 999_999_999) {
+        eprintln("Message count must be 999999999 or lower!", .{});
+        return;
+    }
+
+    println("============================", .{});
+    println("====== Runtime Config ======", .{});
+    println("============================", .{});
+    println("| Cpu Count    : {: <9} |", .{cpu_count});
+    println("| Message Count: {: <9} |", .{message_count});
+    println("| Use Gpa      : {: <9} |", .{use_gpa});
+    println("| Locked       : {: <9} |", .{locked});
+    println("============================", .{});
+    println("", .{});
 
     var system = try a.System.init(allocator, .{ .cpu_count = cpu_count, .locked = locked });
     defer system.deinit() catch {};
