@@ -15,6 +15,13 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
+    const use_semaphore = b.option(bool, "use_semaphore", "should a semaphore be used") orelse false;
+    const use_lfqueue = b.option(bool, "use_lfqueue", "should a lfqueue be used") orelse false;
+
+    const actor_options = b.addOptions();
+    actor_options.addOption(bool, "use_semaphore", use_semaphore);
+    actor_options.addOption(bool, "use_lfqueue", use_lfqueue);
+
     const clap = b.createModule(.{
         .root_source_file = .{ .path = "extern/zig-clap/clap.zig" },
         .target = target,
@@ -57,6 +64,7 @@ pub fn build(b: *std.Build) void {
     }
     actor.addImport("helper", helper);
     actor.addImport("containers", containers);
+    actor.addOptions("config", actor_options);
 
     const exe = b.addExecutable(.{
         .name = "abps",
@@ -65,14 +73,15 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const options = b.addOptions();
+    const messages = b.option(u32, "max_messages", "how many messages") orelse 1000;
+    const use_gpa = b.option(bool, "use_gpa", "if gpa should be used as allocator") orelse false;
+    options.addOption(u32, "max_messages", messages);
+    options.addOption(bool, "use_gpa", use_gpa);
+
     exe.root_module.addImport("helper", helper);
     exe.root_module.addImport("clap", clap);
     exe.root_module.addImport("actor", actor);
-
-    const messages = b.option(u32, "max_messages", "how many messages") orelse 10_000_000;
-
-    const options = b.addOptions();
-    options.addOption(u32, "max_messages", messages);
 
     exe.root_module.addOptions("config", options);
 

@@ -2,6 +2,7 @@ const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const erase = @import("erase.zig");
+const config = @import("config");
 
 const helper = @import("helper");
 const println = helper.println;
@@ -146,16 +147,20 @@ pub const Envelope = struct {
     }
 };
 
+fn Queue(comptime T: type) type {
+    return if (config.use_lfqueue) containers.Queue(T) else containers.LfQueue(T);
+}
+
 pub const Mailbox = struct {
     actor: *Actor,
-    queue: containers.Queue(*Envelope),
+    queue: Queue(*Envelope),
     scheduler: *Scheduler,
 
     pub fn init(allocator: Allocator, actor: *Actor, scheduler: *Scheduler) !*@This() {
         var mb = try allocator.create(Mailbox);
 
         mb.actor = actor;
-        mb.queue = containers.Queue(*Envelope).init(allocator);
+        mb.queue = Queue(*Envelope).init(allocator);
         mb.scheduler = scheduler;
 
         return mb;
@@ -182,7 +187,6 @@ pub const Scheduler = struct {
         allocator: Allocator,
         system: *System,
         cpu: usize,
-        use_semaphore: bool,
     ) !*@This() {
         var scheduler = try allocator.create(Scheduler);
 
@@ -192,7 +196,7 @@ pub const Scheduler = struct {
         scheduler.running = std.atomic.Value(bool).init(true);
         scheduler.system = system;
         scheduler.cpu = cpu;
-        scheduler.sema = if (use_semaphore) std.Thread.Semaphore{} else null;
+        scheduler.sema = if (config.use_semaphore) std.Thread.Semaphore{} else null;
 
         const worker = try std.Thread.spawn(.{ .allocator = allocator }, work, .{scheduler});
         scheduler.worker = worker;
@@ -245,7 +249,6 @@ pub const Scheduler = struct {
 
 pub const SystemOptions = struct {
     cpu_count: ?usize,
-    use_semaphore: bool,
 };
 
 pub const System = struct {
@@ -263,7 +266,6 @@ pub const System = struct {
                 allocator,
                 system,
                 i,
-                options.use_semaphore,
             ));
         }
         system.allocator = allocator;

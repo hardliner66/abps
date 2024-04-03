@@ -24,12 +24,12 @@ fn counting(self: *a.Actor, sys: *a.System, state: *a.ActorRef, _: a.ActorRef, m
     }
     if (msg.matches(i32)) |v| {
         if (v < config.max_messages) {
-            const curtime = zigTime.timestamp();
-            const tm = cTime.localtime(&curtime);
-
-            var buf: [200]u8 = .{0} ** 200;
-            _ = cTime.strftime(@as([*c]u8, @ptrCast(@alignCast(&buf))), 200, "%H:%M:%S", tm);
-            println("{s}: Working({}): {}", .{ buf, std.Thread.getCurrentId(), v });
+            // const curtime = zigTime.timestamp();
+            // const tm = cTime.localtime(&curtime);
+            //
+            // var buf: [200]u8 = .{0} ** 200;
+            // _ = cTime.strftime(@as([*c]u8, @ptrCast(@alignCast(&buf))), 200, "%H:%M:%S", tm);
+            // println("{s}: Working({}): {}", .{ buf, std.Thread.getCurrentId(), v });
             try sys.send(self.ref, state.*, i32, v + 1);
         } else {
             println("Done: {}", .{v});
@@ -47,10 +47,10 @@ fn initial(self: *a.Actor, _: *a.System, _: a.ActorRef, msg: *a.Any) anyerror!vo
 
 pub fn main() !void {
     const params = comptime clap.parseParamsComptime(
-        \\-h                     Display this help and exit.
-        \\    --help             Display this help and exit.
-        \\-d, --debug            An option parameter, which takes a value.
-        \\-s, --sema             An option parameter which can be specified multiple times.
+        \\-h                       Display this help and exit.
+        \\    --help               Display this help and exit.
+        \\-d, --debug              An option parameter, which takes a value.
+        \\-c, --cpucount <usize>  How many schedulers to spawn.
     );
 
     var allocator = std.heap.c_allocator;
@@ -75,18 +75,12 @@ pub fn main() !void {
         return clap.usage(std.io.getStdErr().writer(), clap.Help, &params);
     }
 
-    if (res.args.debug != 0) {
+    if (config.use_gpa) {
         var gpa = std.heap.GeneralPurposeAllocator(.{}){};
         allocator = gpa.allocator();
-        println("DEBUG MODE", .{});
     }
 
-    const sema = res.args.sema != 0;
-    if (sema) {
-        println("SEMAPHORE MODE", .{});
-    }
-
-    var system = try a.System.init(allocator, .{ .cpu_count = 4, .use_semaphore = sema });
+    var system = try a.System.init(allocator, .{ .cpu_count = res.args.cpucount });
     defer system.deinit() catch {};
 
     const ref_1 = try system.spawnWithNameStateless("Counting Actor 1", &initial);
