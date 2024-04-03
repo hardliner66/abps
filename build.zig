@@ -28,17 +28,25 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const ztracy = b.dependency("ztracy", .{
+        .enable_ztracy = true,
+        .enable_fibers = false,
+    });
+    const ztracy_module = ztracy.module("root");
+
     const helper = b.createModule(.{
         .root_source_file = .{ .path = "modules/helper/helper.zig" },
         .target = target,
         .optimize = optimize,
     });
+    helper.addImport("ztracy", ztracy_module);
 
     const containers = b.createModule(.{
         .root_source_file = .{ .path = "modules/containers/containers.zig" },
         .target = target,
         .optimize = optimize,
     });
+    containers.addImport("ztracy", ztracy_module);
 
     const release_flags = [_][]const u8{};
     const debug_flags = [_][]const u8{"-O3"};
@@ -64,6 +72,7 @@ pub fn build(b: *std.Build) void {
     }
     actor.addImport("helper", helper);
     actor.addImport("containers", containers);
+    actor.addImport("ztracy", ztracy_module);
     actor.addOptions("config", actor_options);
 
     const exe = b.addExecutable(.{
@@ -72,6 +81,9 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+
+    exe.root_module.addImport("ztracy", ztracy_module);
+    exe.linkLibrary(ztracy.artifact("tracy"));
 
     const options = b.addOptions();
     const messages = b.option(u32, "max_messages", "how many messages") orelse 1000;

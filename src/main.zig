@@ -6,8 +6,11 @@ const clap = @import("clap");
 const println = helper.println;
 const eprintln = helper.eprintln;
 const config = @import("config");
+const ztracy = @import("ztracy");
 
 fn die(self: *a.Actor, sys: *a.System, from: a.ActorRef, msg: *a.Any) anyerror!void {
+    const tracy_zone = ztracy.Zone(@src());
+    defer tracy_zone.End();
     _ = self;
     _ = from;
     // make sure we dont get a "message was not handled!" message
@@ -19,6 +22,8 @@ const zigTime = std.time;
 const cTime = @cImport(@cInclude("time.h"));
 
 fn counting(self: *a.Actor, sys: *a.System, state: *a.ActorRef, _: a.ActorRef, msg: *a.Any) anyerror!void {
+    const tracy_zone = ztracy.Zone(@src());
+    defer tracy_zone.End();
     if (msg.matches(a.ActorRef)) |r| {
         state.* = r;
     }
@@ -40,12 +45,16 @@ fn counting(self: *a.Actor, sys: *a.System, state: *a.ActorRef, _: a.ActorRef, m
 }
 
 fn initial(self: *a.Actor, _: *a.System, _: a.ActorRef, msg: *a.Any) anyerror!void {
+    const tracy_zone = ztracy.Zone(@src());
+    defer tracy_zone.End();
     if (msg.matches(a.ActorRef)) |r| {
         try self.become(a.ActorRef, r, &counting);
     }
 }
 
 pub fn main() !void {
+    const tracy_zone = ztracy.Zone(@src());
+    defer tracy_zone.End();
     const params = comptime clap.parseParamsComptime(
         \\-h                       Display this help and exit.
         \\    --help               Display this help and exit.

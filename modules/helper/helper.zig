@@ -1,4 +1,5 @@
 const std = @import("std");
+const ztracy = @import("ztracy");
 
 pub fn print(comptime format: []const u8, args: anytype) void {
     const stdout_file = std.io.getStdOut().writer();

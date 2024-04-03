@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const ztracy = @import("ztracy");
 
 pub const AnyPointer = SafePointer;
 
@@ -19,6 +20,8 @@ pub const SafePointer = struct {
 
     /// Creates a new type-erased pointer.
     pub fn make(comptime T: type, ptr: T) SafePointer {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         assertPointer(T);
         return SafePointer{
             .address = @intFromPtr(ptr),
@@ -29,6 +32,8 @@ pub const SafePointer = struct {
     /// Casts the type-erased pointer to the pointer type `T`. Will perform a safety check and panic, if the pointer isn't of type `T`.
     /// Returns `T`.
     pub fn cast(self: SafePointer, comptime T: type) T {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         assertPointer(T);
         if (typeId(T) != self.type_id) {
             std.debug.panic("Type mismatch: Expected {s}, but got {s}!", .{ @typeName(T), self.type_id.name() });
@@ -39,6 +44,8 @@ pub const SafePointer = struct {
     /// Will try to cast the type-erased pointer to `T`. Does return `null` if the types don't match, otherwise will
     /// return the pointer as `T`.
     pub fn tryCast(self: SafePointer, comptime T: type) ?T {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         assertPointer(T);
         if (self.isNull())
             return null;
@@ -50,11 +57,15 @@ pub const SafePointer = struct {
 
     /// Returns true if the pointer is a null pointer
     pub fn isNull(self: SafePointer) bool {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         return self.address == 0;
     }
 
     /// Returns true if the address of both pointers is the same.
     pub fn eql(self: SafePointer, other: SafePointer) bool {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         return self.address == other.address;
     }
 };
@@ -63,11 +74,15 @@ const TypeId = enum(usize) {
     _,
 
     pub fn name(self: TypeId) []const u8 {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         return std.mem.sliceTo(@as([*:0]const u8, @ptrFromInt(@intFromEnum(self))), 0);
     }
 };
 
 fn assertPointer(comptime T: type) void {
+    const tracy_zone = ztracy.Zone(@src());
+    defer tracy_zone.End();
     comptime var ti: std.builtin.Type = @typeInfo(T);
     if (ti == .Optional) {
         ti = @typeInfo(ti.Optional.child);

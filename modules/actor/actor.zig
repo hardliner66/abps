@@ -9,6 +9,7 @@ const println = helper.println;
 const eprintln = helper.eprintln;
 
 const containers = @import("containers");
+const ztracy = @import("ztracy");
 
 const aff = @cImport({
     @cInclude("affinity.h");
@@ -21,12 +22,16 @@ pub fn TypedBehavior(comptime T: type) type {
 pub const StatelessBehavior = *const fn (self: *Actor, sys: *System, from: ActorRef, msg: *Any) anyerror!void;
 
 fn toOpaque(comptime T: type, behavior: TypedBehavior(T)) *anyopaque {
+    const tracy_zone = ztracy.Zone(@src());
+    defer tracy_zone.End();
     return @constCast(
         @ptrCast(behavior),
     );
 }
 
 fn statelessToOpaque(behavior: StatelessBehavior) *anyopaque {
+    const tracy_zone = ztracy.Zone(@src());
+    defer tracy_zone.End();
     return @constCast(
         @ptrCast(behavior),
     );
@@ -45,6 +50,8 @@ pub const Actor = struct {
     fn makeDealloc(comptime T: type) (fn (allocator: Allocator, ptr: *anyopaque) void) {
         return struct {
             fn dealloc(allocator: Allocator, ptr: *anyopaque) void {
+                const tracy_zone = ztracy.Zone(@src());
+                defer tracy_zone.End();
                 const p: *T = @alignCast(@ptrCast(ptr));
                 allocator.destroy(p);
             }
@@ -54,6 +61,8 @@ pub const Actor = struct {
     fn makeEmptyDealloc() (fn (allocator: Allocator, ptr: *anyopaque) void) {
         return struct {
             fn dealloc(allocator: Allocator, ptr: *anyopaque) void {
+                const tracy_zone = ztracy.Zone(@src());
+                defer tracy_zone.End();
                 _ = allocator;
                 _ = ptr;
             }
@@ -63,6 +72,8 @@ pub const Actor = struct {
     fn makeCallBehavior(comptime T: type) (fn (self: *Actor, sys: *System, from: ActorRef, msg: *Any) anyerror!void) {
         return struct {
             fn callBehavior(self: *Actor, sys: *System, from: ActorRef, msg: *Any) anyerror!void {
+                const tracy_zone = ztracy.Zone(@src());
+                defer tracy_zone.End();
                 const behavior: TypedBehavior(T) = @alignCast(@ptrCast(self.behavior));
                 const state: *T = @alignCast(@ptrCast(self.state));
 
@@ -74,6 +85,8 @@ pub const Actor = struct {
     fn makeStatelessCallBehavior() (fn (self: *Actor, sys: *System, from: ActorRef, msg: *Any) anyerror!void) {
         return struct {
             fn callBehavior(self: *Actor, sys: *System, from: ActorRef, msg: *Any) anyerror!void {
+                const tracy_zone = ztracy.Zone(@src());
+                defer tracy_zone.End();
                 const behavior: StatelessBehavior = @alignCast(@ptrCast(self.behavior));
 
                 return behavior(self, sys, from, msg);
@@ -82,6 +95,8 @@ pub const Actor = struct {
     }
 
     pub fn become(self: *Actor, comptime T: type, state: T, behavior: TypedBehavior(T)) !void {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         self.behavior = toOpaque(T, behavior);
         self.call_behavior = Actor.makeCallBehavior(T);
 
@@ -94,6 +109,8 @@ pub const Actor = struct {
     }
 
     pub fn becomeStateless(self: *Actor, behavior: StatelessBehavior) !void {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         self.behavior = statelessToOpaque(behavior);
         self.call_behavior = Actor.makeStatelessCallBehavior();
 
@@ -102,6 +119,8 @@ pub const Actor = struct {
     }
 
     pub fn init(allocator: Allocator, comptime T: type, state: T, behavior: TypedBehavior(T)) !*Actor {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         var actor = try allocator.create(Actor);
         actor.allocator = allocator;
         actor.dealloc = Actor.makeEmptyDealloc();
@@ -111,11 +130,15 @@ pub const Actor = struct {
     }
 
     pub fn with_name(self: *Actor, name: []const u8) *Actor {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         self.name = name;
         return self;
     }
 
     pub fn initStateless(allocator: Allocator, behavior: StatelessBehavior) !*Actor {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         var actor = try allocator.create(Actor);
         actor.allocator = allocator;
         actor.dealloc = Actor.makeEmptyDealloc();
@@ -125,6 +148,8 @@ pub const Actor = struct {
     }
 
     pub fn deinit(self: *Actor) void {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         self.state.deinit();
     }
 };
@@ -143,6 +168,8 @@ pub const Envelope = struct {
     msg: Any,
 
     pub fn deinit(self: *Envelope) void {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         self.msg.deinit();
     }
 };
@@ -157,6 +184,8 @@ pub const Mailbox = struct {
     scheduler: *Scheduler,
 
     pub fn init(allocator: Allocator, actor: *Actor, scheduler: *Scheduler) !*@This() {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         var mb = try allocator.create(Mailbox);
 
         mb.actor = actor;
@@ -167,6 +196,8 @@ pub const Mailbox = struct {
     }
 
     pub fn deinit(self: *Mailbox) void {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         while (self.queue.pop()) |env| {
             env.deinit();
         }
@@ -188,6 +219,8 @@ pub const Scheduler = struct {
         system: *System,
         cpu: usize,
     ) !*@This() {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         var scheduler = try allocator.create(Scheduler);
 
         scheduler.mailboxes = std.ArrayList(*Mailbox).init(allocator);
@@ -205,6 +238,8 @@ pub const Scheduler = struct {
     }
 
     pub fn deinit(self: *Scheduler) !void {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         self.stop();
         while (self.mailboxes.popOrNull()) |mb| {
             mb.deinit();
@@ -212,6 +247,8 @@ pub const Scheduler = struct {
     }
 
     pub fn stop(self: *Scheduler) void {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         self.running.store(false, .monotonic);
         if (self.sema) |*sema| {
             sema.post();
@@ -219,10 +256,14 @@ pub const Scheduler = struct {
     }
 
     pub fn wait(self: *Scheduler) void {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         self.worker.join();
     }
 
     fn work(self: *Scheduler) !void {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         _ = aff.set_affinity(self.cpu);
         while (self.running.load(.monotonic)) {
             if (self.new_mailboxes_lock.tryLock()) {
@@ -257,6 +298,8 @@ pub const System = struct {
     counter: std.atomic.Value(usize),
 
     pub fn init(allocator: Allocator, options: SystemOptions) !*@This() {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         var system = try allocator.create(System);
         var schedulers = std.ArrayList(*Scheduler).init(allocator);
         const cpu_count = options.cpu_count orelse try std.Thread.getCpuCount();
@@ -275,6 +318,8 @@ pub const System = struct {
     }
 
     pub fn deinit(self: *System) !void {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         for (try self.schedulers.toOwnedSlice()) |scheduler| {
             try scheduler.deinit();
         }
@@ -282,18 +327,24 @@ pub const System = struct {
     }
 
     pub fn spawnWithName(self: *System, name: []const u8, T: type, state: T, behavior: TypedBehavior(T)) !ActorRef {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         const ref = try self.spawn(T, state, behavior);
         ref.ref.actor.name = name;
         return ref;
     }
 
     pub fn spawnWithNameStateless(self: *System, name: []const u8, behavior: StatelessBehavior) !ActorRef {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         const ref = try self.spawnStateless(behavior);
         ref.ref.actor.name = name;
         return ref;
     }
 
     fn createRefAndAdd(self: *System, actor: *Actor) !ActorRef {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         const i = self.counter.fetchAdd(1, .monotonic);
         const mb = try Mailbox.init(self.allocator, actor, self.schedulers.items[i % self.schedulers.items.len]);
 
@@ -308,6 +359,8 @@ pub const System = struct {
     }
 
     pub fn spawn(self: *System, T: type, state: T, behavior: TypedBehavior(T)) !ActorRef {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         const actor = try Actor.init(
             self.allocator,
             T,
@@ -319,6 +372,8 @@ pub const System = struct {
     }
 
     pub fn spawnStateless(self: *System, behavior: StatelessBehavior) !ActorRef {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         const actor = try Actor.initStateless(
             self.allocator,
             behavior,
@@ -328,12 +383,16 @@ pub const System = struct {
     }
 
     pub fn wait(self: *System) void {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         for (self.schedulers.items) |scheduler| {
             scheduler.wait();
         }
     }
 
     pub fn send(self: *System, from: ActorRef, to: ActorRef, comptime T: type, value: T) !void {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         const m = try self.allocator.create(Envelope);
         m.from = from;
         m.to = to;
@@ -349,6 +408,8 @@ pub const System = struct {
     }
 
     pub fn stop(self: *System) void {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         for (self.schedulers.items) |scheduler| {
             scheduler.stop();
         }
@@ -365,6 +426,8 @@ pub const Any = struct {
     fn makeDealloc(comptime T: type) (fn (allocator: Allocator, ptr: erase.AnyPointer) void) {
         return struct {
             fn dealloc(allocator: Allocator, ptr: erase.AnyPointer) void {
+                const tracy_zone = ztracy.Zone(@src());
+                defer tracy_zone.End();
                 const p = ptr.cast(*T);
                 allocator.destroy(p);
             }
@@ -374,6 +437,8 @@ pub const Any = struct {
     fn makeDebug(comptime T: type) (fn (actor: *Actor, ptr: erase.AnyPointer) void) {
         return struct {
             fn debug(actor: *Actor, ptr: erase.AnyPointer) void {
+                const tracy_zone = ztracy.Zone(@src());
+                defer tracy_zone.End();
                 const name = actor.name orelse "<unnamed>";
                 if (ptr.tryCast(*[]const u8)) |s| {
                     eprintln("Message was not handled by {*}.\"{s}\": {s}", .{ actor, name, s.* });
@@ -388,6 +453,8 @@ pub const Any = struct {
     }
 
     pub fn init(allocator: Allocator, comptime T: type, v: T) !Any {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         const value = try allocator.create(T);
         value.* = v;
         return Any{
@@ -400,6 +467,8 @@ pub const Any = struct {
     }
 
     pub fn matches(self: *Any, comptime T: type) ?T {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         const ptr = self.ptr.tryCast(*T);
         if (ptr) |p| {
             self.read = true;
@@ -409,10 +478,14 @@ pub const Any = struct {
     }
 
     pub fn deinit(self: *const Any) void {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
         self.dealloc(self.allocator, self.ptr);
     }
 };
 
 pub fn any(allocator: Allocator, comptime T: type, v: T) !Any {
+    const tracy_zone = ztracy.Zone(@src());
+    defer tracy_zone.End();
     return Any.init(allocator, T, v);
 }
