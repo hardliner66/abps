@@ -122,6 +122,7 @@ pub fn main() !void {
     defer system.deinit() catch {};
 
     const first = try system.spawnWithName(
+        null,
         "Counting Actor 1",
         InitialState,
         .{ .max_messages = message_count },
@@ -139,6 +140,7 @@ pub fn main() !void {
         const hello_world = try fmt.bufPrint(all_together_slice, "Counting Actor {}", .{i + 2});
 
         last = try system.spawnWithName(
+            null,
             hello_world,
             State,
             .{ .next = last, .max_messages = message_count },

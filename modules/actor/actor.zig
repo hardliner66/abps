@@ -44,6 +44,7 @@ pub const Actor = struct {
     state: *anyopaque,
     allocator: Allocator,
     dealloc: *const fn (allocator: Allocator, ptr: *anyopaque) void,
+    parent: ?ActorRef,
 
     call_behavior: *const fn (self: *Actor, sys: *System, from: ActorRef, msg: *Any) anyerror!void,
 
@@ -127,13 +128,6 @@ pub const Actor = struct {
         try actor.become(T, state, behavior);
 
         return actor;
-    }
-
-    pub fn with_name(self: *Actor, name: []const u8) *Actor {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
-        self.name = name;
-        return self;
     }
 
     pub fn initStateless(allocator: Allocator, behavior: StatelessBehavior) !*Actor {
@@ -316,19 +310,21 @@ pub const System = struct {
         self.schedulers.deinit();
     }
 
-    pub fn spawnWithName(self: *System, name: []const u8, T: type, state: T, behavior: TypedBehavior(T)) !ActorRef {
+    pub fn spawnWithName(self: *System, parent: ?ActorRef, name: []const u8, T: type, state: T, behavior: TypedBehavior(T)) !ActorRef {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
         const ref = try self.spawn(T, state, behavior);
         ref.ref.actor.name = name;
+        ref.ref.actor.parent = parent;
         return ref;
     }
 
-    pub fn spawnWithNameStateless(self: *System, name: []const u8, behavior: StatelessBehavior) !ActorRef {
+    pub fn spawnWithNameStateless(self: *System, parent: ?ActorRef, name: []const u8, behavior: StatelessBehavior) !ActorRef {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
         const ref = try self.spawnStateless(behavior);
         ref.ref.actor.name = name;
+        ref.ref.actor.parent = parent;
         return ref;
     }
 
