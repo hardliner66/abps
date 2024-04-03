@@ -28,7 +28,7 @@ pub fn LfQueue(comptime T: type) type {
             };
         }
 
-        pub fn push(self: Self, value: T) !void {
+        pub fn push(self: *Self, value: T) !void {
             if (isPointer(T)) {
                 _ = cq.moodycamel_cq_enqueue(self.lfq, @ptrCast(value));
             } else {
@@ -38,7 +38,7 @@ pub fn LfQueue(comptime T: type) type {
             }
         }
 
-        pub fn pop(self: Self) ?T {
+        pub fn pop(self: *Self) ?T {
             if (isPointer(T)) {
                 var v: T = undefined;
                 if (cq.moodycamel_cq_try_dequeue(self.lfq, @ptrCast(&v)) != 0) {
@@ -55,7 +55,7 @@ pub fn LfQueue(comptime T: type) type {
             return null;
         }
 
-        pub fn deinit(self: Self) void {
+        pub fn deinit(self: *Self) void {
             _ = cq.moodycamel_cq_destroy(@ptrCast(self.lfq));
         }
     };

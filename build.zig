@@ -69,6 +69,13 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("clap", clap);
     exe.root_module.addImport("actor", actor);
 
+    const messages = b.option(u32, "max_messages", "how many messages") orelse 10_000_000;
+
+    const options = b.addOptions();
+    options.addOption(u32, "max_messages", messages);
+
+    exe.root_module.addOptions("config", options);
+
     exe.linkLibCpp();
 
     // This declares intent for the executable to be installed into the

@@ -148,14 +148,14 @@ pub const Envelope = struct {
 
 pub const Mailbox = struct {
     actor: *Actor,
-    queue: containers.LfQueue(*Envelope),
+    queue: containers.Queue(*Envelope),
     scheduler: *Scheduler,
 
     pub fn init(allocator: Allocator, actor: *Actor, scheduler: *Scheduler) !*@This() {
         var mb = try allocator.create(Mailbox);
 
         mb.actor = actor;
-        mb.queue = containers.LfQueue(*Envelope).init(allocator);
+        mb.queue = containers.Queue(*Envelope).init(allocator);
         mb.scheduler = scheduler;
 
         return mb;
@@ -293,7 +293,7 @@ pub const System = struct {
 
     fn createRefAndAdd(self: *System, actor: *Actor) !ActorRef {
         const i = self.counter.fetchAdd(1, .monotonic);
-        const mb = try Mailbox.init(self.allocator, actor, self.schedulers.items[i]);
+        const mb = try Mailbox.init(self.allocator, actor, self.schedulers.items[i % self.schedulers.items.len]);
 
         var scheduler = self.schedulers.items[i % self.schedulers.items.len];
         scheduler.new_mailboxes_lock.lock();
@@ -341,7 +341,9 @@ pub const System = struct {
             value,
         );
         try to.ref.queue.push(m);
-        // to.ref.scheduler.sema.post();
+        if (to.ref.scheduler.sema) |*sema| {
+            sema.post();
+        }
     }
 
     pub fn stop(self: *System) void {
