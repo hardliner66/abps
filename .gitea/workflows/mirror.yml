@@ -19,6 +19,8 @@ jobs:
           echo "Reinitializing repository..."
           git init
           git submodule add https://github.com/cameron314/concurrentqueue extern/concurrentqueue
+          git submodule add https://github.com/Hejsil/zig-clap extern/zig-clap
+          git submodule add https://github.com/zig-gamedev/zig-gamedev extern/zig-gamedev
           mv README.md README_OLD.md
           echo "# THIS IS A MIRROR OF A PRIVATE REPO" > README.md
           echo "" >> README.md
