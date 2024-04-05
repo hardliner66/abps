@@ -84,7 +84,8 @@ pub fn main() !void {
 
     const sender_count = res.args.sender_count orelse (try std.Thread.getCpuCount() / 2) - 1;
     const message_count = res.args.message_count orelse 1000;
-    const total = sender_count * message_count;
+    const per_sender = message_count / sender_count;
+    const rest = message_count - (per_sender * sender_count);
 
     if (message_count > 999_999_999) {
         eprintln("Message count must be 999999999 or lower!", .{});
@@ -94,7 +95,7 @@ pub fn main() !void {
     println("============================", .{});
     println("====== Runtime Config ======", .{});
     println("============================", .{});
-    println("| Cpu Count    : {: <9} |", .{sender_count});
+    println("| Cpu Count    : {: <9} |", .{sender_count + 1});
     println("| Message Count: {: <9} |", .{message_count});
     println("| Use Gpa      : {: <9} |", .{use_gpa});
     println("| Locked       : {: <9} |", .{locked});
@@ -109,7 +110,7 @@ pub fn main() !void {
             null,
             "Receiver",
             Receiver,
-            .{ .count = 0, .max_messages = total },
+            .{ .count = 0, .max_messages = message_count },
         );
         for (0..sender_count) |i| {
             var all_together: [100]u8 = undefined;
@@ -124,7 +125,7 @@ pub fn main() !void {
                 null,
                 sender_name,
                 Sender,
-                .{ .message_count = message_count },
+                .{ .message_count = if (i == 0) per_sender + rest else per_sender },
             );
             try system.send(receiver, sender, void, void{});
         }

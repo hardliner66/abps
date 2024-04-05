@@ -106,7 +106,7 @@ pub fn main() !void {
 
     const locked = res.args.locked != 0;
 
-    const cpu_count = res.args.cpu_count orelse try std.Thread.getCpuCount() / 2;
+    const cpu_count = res.args.cpu_count orelse (try std.Thread.getCpuCount() / 2);
     const message_count = res.args.message_count orelse 1000;
 
     if (message_count > 999_999_999) {
