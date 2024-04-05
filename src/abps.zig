@@ -9,58 +9,59 @@ const eprintln = helper.eprintln;
 const config = @import("config");
 const ztracy = @import("ztracy");
 
-fn die(self: *a.Actor, sys: *a.System, from: a.ActorRef, msg: *a.Any) anyerror!void {
-    const tracy_zone = ztracy.Zone(@src());
-    defer tracy_zone.End();
-    _ = self;
-    _ = from;
-    // make sure we dont get a "message was not handled!" message
-    _ = msg.matches(void);
-    sys.stop();
-}
+const Die = struct {
+    pub fn call(_: *Die, self: *a.Actor, sys: *a.System, from: a.ActorRef, msg: *a.Any) anyerror!void {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
+        _ = self;
+        _ = from;
+        // make sure we dont get a "message was not handled!" message
+        _ = msg.matches(void);
+        sys.stop();
+    }
+};
 
 const zigTime = std.time;
 const cTime = @cImport(@cInclude("time.h"));
 
-const InitialState = struct {
-    max_messages: usize,
-};
-
-const State = struct {
+const Counting = struct {
     max_messages: usize,
     next: a.ActorRef,
-};
 
-fn counting(self: *a.Actor, sys: *a.System, state: *State, _: a.ActorRef, msg: *a.Any) anyerror!void {
-    const tracy_zone = ztracy.Zone(@src());
-    defer tracy_zone.End();
-    if (msg.matches(a.ActorRef)) |r| {
-        state.next = r;
-    }
-    if (msg.matches(i32)) |v| {
-        if (v < state.max_messages) {
-            // const curtime = zigTime.timestamp();
-            // const tm = cTime.localtime(&curtime);
-            //
-            // var buf: [200]u8 = .{0} ** 200;
-            // _ = cTime.strftime(@as([*c]u8, @ptrCast(@alignCast(&buf))), 200, "%H:%M:%S", tm);
-            // println("{s}: Working({}): {}", .{ buf, std.Thread.getCurrentId(), v });
-            try sys.send(self.ref, state.next, i32, v + 1);
-        } else {
-            println("Done: {}", .{v});
-            try self.becomeStateless(&die);
-            try sys.send(self.ref, self.ref, void, {});
+    pub fn call(state: *Counting, self: *a.Actor, sys: *a.System, _: a.ActorRef, msg: *a.Any) anyerror!void {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
+        if (msg.matches(a.ActorRef)) |r| {
+            state.next = r;
+        }
+        if (msg.matches(i32)) |v| {
+            if (v < state.max_messages) {
+                // const curtime = zigTime.timestamp();
+                // const tm = cTime.localtime(&curtime);
+                //
+                // var buf: [200]u8 = .{0} ** 200;
+                // _ = cTime.strftime(@as([*c]u8, @ptrCast(@alignCast(&buf))), 200, "%H:%M:%S", tm);
+                // println("{s}: Working({}): {}", .{ buf, std.Thread.getCurrentId(), v });
+                try sys.send(self.ref, state.next, i32, v + 1);
+            } else {
+                println("Done: {}", .{v});
+                try self.become(try a.Behavior(Die).create(sys.allocator, .{}));
+                try sys.send(self.ref, self.ref, void, {});
+            }
         }
     }
-}
+};
 
-fn initial(self: *a.Actor, _: *a.System, state: *InitialState, _: a.ActorRef, msg: *a.Any) anyerror!void {
-    const tracy_zone = ztracy.Zone(@src());
-    defer tracy_zone.End();
-    if (msg.matches(a.ActorRef)) |r| {
-        try self.become(State, .{ .next = r, .max_messages = state.max_messages }, &counting);
+const Initial = struct {
+    max_messages: usize,
+    pub fn call(state: *Initial, self: *a.Actor, sys: *a.System, _: a.ActorRef, msg: *a.Any) anyerror!void {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
+        if (msg.matches(a.ActorRef)) |r| {
+            try self.become(try a.Behavior(Counting).create(sys.allocator, .{ .next = r, .max_messages = state.max_messages }));
+        }
     }
-}
+};
 
 pub fn main() !void {
     const tracy_zone = ztracy.Zone(@src());
@@ -130,9 +131,7 @@ pub fn main() !void {
         const first = try system.spawnWithName(
             null,
             "Counting Actor 1",
-            InitialState,
-            .{ .max_messages = message_count },
-            &initial,
+            try a.Behavior(Initial).create(allocator, .{ .max_messages = message_count }),
         );
         var last: a.ActorRef = first;
         for (0..cpu_count - 1) |i| {
@@ -148,14 +147,27 @@ pub fn main() !void {
             last = try system.spawnWithName(
                 null,
                 hello_world,
-                State,
-                .{ .next = last, .max_messages = message_count },
-                &counting,
+                try a.Behavior(Counting).create(allocator, .{ .next = last, .max_messages = message_count }),
             );
         }
         try system.send(first, first, []const u8, "test");
         try system.send(first, first, a.ActorRef, last);
         try system.send(first, first, i32, 1);
+
+        const abcd = try system.spawnWithName(
+            null,
+            "",
+            try a.Behavior(struct {
+                const Self = @This();
+
+                pub fn call(_: *Self, _: *a.Actor, _: *a.System, _: a.ActorRef, msg: *a.Any) anyerror!void {
+                    if (msg.matches(i32)) |v| {
+                        println("Anonymous Actor got value: {}", .{v});
+                    }
+                }
+            }).create(allocator, .{}),
+        );
+        try system.send(abcd, abcd, i32, 5);
 
         system.wait();
     }

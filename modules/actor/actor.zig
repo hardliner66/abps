@@ -19,128 +19,75 @@ const aff = @cImport({
     @cInclude("affinity.h");
 });
 
-pub fn TypedBehavior(comptime T: type) type {
-    return *const fn (self: *Actor, sys: *System, state: *T, from: ActorRef, msg: *Any) anyerror!void;
-}
+pub const ErasedBehavior = struct {
+    const Self = @This();
 
-pub const StatelessBehavior = *const fn (self: *Actor, sys: *System, from: ActorRef, msg: *Any) anyerror!void;
+    instance: *anyopaque,
+    allocator: Allocator,
 
-fn toOpaque(comptime T: type, behavior: TypedBehavior(T)) *anyopaque {
-    const tracy_zone = ztracy.Zone(@src());
-    defer tracy_zone.End();
-    return @constCast(
-        @ptrCast(behavior),
-    );
-}
+    // The call method signature expected by the system
+    call: *const fn (self: *Actor, sys: *System, from: ActorRef, msg: *Any) anyerror!void,
 
-fn statelessToOpaque(behavior: StatelessBehavior) *anyopaque {
-    const tracy_zone = ztracy.Zone(@src());
-    defer tracy_zone.End();
-    return @constCast(
-        @ptrCast(behavior),
-    );
+    // Function to deallocate the behavior
+    destroy: *const fn (self: *Self) void,
+};
+
+pub fn Behavior(comptime T: type) type {
+    return struct {
+        const Self = @This();
+
+        // The call method signature expected by the system
+        pub fn call(self: *Actor, sys: *System, from: ActorRef, msg: *Any) !void {
+            const instance: *T = @alignCast(@ptrCast(self.behavior.instance));
+            // Forward the call to the instance's method
+            try instance.call(self, sys, from, msg);
+        }
+
+        // Factory function to create a new behavior
+        pub fn create(allocator: Allocator, args: T) !*ErasedBehavior {
+            const instance = try allocator.create(T);
+            instance.* = args;
+
+            const behavior = try allocator.create(ErasedBehavior);
+            behavior.* = .{
+                .instance = @ptrCast(instance),
+                .allocator = allocator,
+                .call = &call,
+                .destroy = &destroy,
+            };
+            return behavior;
+        }
+
+        // Function to deallocate the behavior
+        pub fn destroy(self: *ErasedBehavior) void {
+            const instance: *T = @alignCast(@ptrCast(self.instance));
+            self.allocator.destroy(instance);
+            self.allocator.destroy(self);
+        }
+    };
 }
 
 pub const Actor = struct {
     ref: ActorRef,
     name: ?[]const u8,
-    behavior: *anyopaque,
-    state: *anyopaque,
+    behavior: *ErasedBehavior,
     allocator: Allocator,
     dealloc: *const fn (allocator: Allocator, ptr: *anyopaque) void,
     parent: ?ActorRef,
 
-    call_behavior: *const fn (self: *Actor, sys: *System, from: ActorRef, msg: *Any) anyerror!void,
-
-    fn makeDealloc(comptime T: type) (fn (allocator: Allocator, ptr: *anyopaque) void) {
-        return struct {
-            fn dealloc(allocator: Allocator, ptr: *anyopaque) void {
-                const tracy_zone = ztracy.Zone(@src());
-                defer tracy_zone.End();
-                const p: *T = @alignCast(@ptrCast(ptr));
-                allocator.destroy(p);
-            }
-        }.dealloc;
-    }
-
-    fn makeEmptyDealloc() (fn (allocator: Allocator, ptr: *anyopaque) void) {
-        return struct {
-            fn dealloc(allocator: Allocator, ptr: *anyopaque) void {
-                const tracy_zone = ztracy.Zone(@src());
-                defer tracy_zone.End();
-                _ = allocator;
-                _ = ptr;
-            }
-        }.dealloc;
-    }
-
-    fn makeCallBehavior(comptime T: type) (fn (self: *Actor, sys: *System, from: ActorRef, msg: *Any) anyerror!void) {
-        return struct {
-            fn callBehavior(self: *Actor, sys: *System, from: ActorRef, msg: *Any) anyerror!void {
-                const tracy_zone = ztracy.Zone(@src());
-                defer tracy_zone.End();
-                const behavior: TypedBehavior(T) = @alignCast(@ptrCast(self.behavior));
-                const state: *T = @alignCast(@ptrCast(self.state));
-
-                return behavior(self, sys, state, from, msg);
-            }
-        }.callBehavior;
-    }
-
-    fn makeStatelessCallBehavior() (fn (self: *Actor, sys: *System, from: ActorRef, msg: *Any) anyerror!void) {
-        return struct {
-            fn callBehavior(self: *Actor, sys: *System, from: ActorRef, msg: *Any) anyerror!void {
-                const tracy_zone = ztracy.Zone(@src());
-                defer tracy_zone.End();
-                const behavior: StatelessBehavior = @alignCast(@ptrCast(self.behavior));
-
-                return behavior(self, sys, from, msg);
-            }
-        }.callBehavior;
-    }
-
-    pub fn become(self: *Actor, comptime T: type, state: T, behavior: TypedBehavior(T)) !void {
+    pub fn become(self: *Actor, behavior: *ErasedBehavior) !void {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
-        self.behavior = toOpaque(T, behavior);
-        self.call_behavior = Actor.makeCallBehavior(T);
-
-        self.dealloc(self.allocator, self.state);
-        self.dealloc = Actor.makeDealloc(T);
-
-        const state_ptr = try self.allocator.create(T);
-        state_ptr.* = state;
-        self.state = @ptrCast(state_ptr);
+        self.behavior.destroy(self.behavior);
+        self.behavior = behavior;
     }
 
-    pub fn becomeStateless(self: *Actor, behavior: StatelessBehavior) !void {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
-        self.behavior = statelessToOpaque(behavior);
-        self.call_behavior = Actor.makeStatelessCallBehavior();
-
-        self.dealloc(self.allocator, self.state);
-        self.dealloc = Actor.makeEmptyDealloc();
-    }
-
-    pub fn init(allocator: Allocator, comptime T: type, state: T, behavior: TypedBehavior(T)) !*Actor {
+    pub fn init(allocator: Allocator, behavior: *ErasedBehavior) !*Actor {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
         var actor = try allocator.create(Actor);
         actor.allocator = allocator;
-        actor.dealloc = Actor.makeEmptyDealloc();
-        try actor.become(T, state, behavior);
-
-        return actor;
-    }
-
-    pub fn initStateless(allocator: Allocator, behavior: StatelessBehavior) !*Actor {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
-        var actor = try allocator.create(Actor);
-        actor.allocator = allocator;
-        actor.dealloc = Actor.makeEmptyDealloc();
-        try actor.becomeStateless(behavior);
+        actor.behavior = behavior;
 
         return actor;
     }
@@ -148,7 +95,7 @@ pub const Actor = struct {
     pub fn deinit(self: *Actor) void {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
-        self.dealloc(self.allocator, self.state);
+        self.behavior.destroy(self.behavior);
     }
 };
 
@@ -176,7 +123,7 @@ pub const Mailbox = struct {
     actor: *Actor,
     queue: containers.Queue(*Envelope),
     scheduler: WeakPtr(Scheduler),
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
 
     pub fn init(allocator: Allocator, actor: *Actor, scheduler: *Scheduler, locked: bool) !*@This() {
         const tracy_zone = ztracy.Zone(@src());
@@ -274,7 +221,7 @@ pub const Scheduler = struct {
             }
             for (self.mailboxes.items) |mb| {
                 if (mb.queue.pop()) |env| {
-                    mb.actor.call_behavior(mb.actor, self.system, env.from, &env.msg) catch {};
+                    mb.actor.behavior.call(mb.actor, self.system, env.from, &env.msg) catch {};
                     if (!env.msg.read) {
                         env.msg.debug(mb.actor, env.msg.ptr);
                     }
@@ -328,19 +275,10 @@ pub const System = struct {
         self.allocator.destroy(self);
     }
 
-    pub fn spawnWithName(self: *System, parent: ?ActorRef, name: []const u8, T: type, state: T, behavior: TypedBehavior(T)) !ActorRef {
+    pub fn spawnWithName(self: *System, parent: ?ActorRef, name: []const u8, behavior: *ErasedBehavior) !ActorRef {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
-        const ref = try self.spawn(T, state, behavior);
-        ref.ref.actor.name = name;
-        ref.ref.actor.parent = parent;
-        return ref;
-    }
-
-    pub fn spawnWithNameStateless(self: *System, parent: ?ActorRef, name: []const u8, behavior: StatelessBehavior) !ActorRef {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
-        const ref = try self.spawnStateless(behavior);
+        const ref = try self.spawn(behavior);
         ref.ref.actor.name = name;
         ref.ref.actor.parent = parent;
         return ref;
@@ -362,23 +300,10 @@ pub const System = struct {
         return ref;
     }
 
-    pub fn spawn(self: *System, T: type, state: T, behavior: TypedBehavior(T)) !ActorRef {
+    pub fn spawn(self: *System, behavior: *ErasedBehavior) !ActorRef {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
         const actor = try Actor.init(
-            self.allocator,
-            T,
-            state,
-            behavior,
-        );
-
-        return try self.createRefAndAdd(actor);
-    }
-
-    pub fn spawnStateless(self: *System, behavior: StatelessBehavior) !ActorRef {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
-        const actor = try Actor.initStateless(
             self.allocator,
             behavior,
         );
