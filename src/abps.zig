@@ -10,7 +10,7 @@ const config = @import("config");
 const ztracy = @import("ztracy");
 
 const Die = struct {
-    pub fn call(_: *Die, self: *a.Actor, sys: *a.System, from: a.ActorRef, msg: *a.Any) anyerror!void {
+    pub fn handle(_: *Die, self: *a.Actor, sys: *a.System, from: a.ActorRef, msg: *a.Any) anyerror!void {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
         _ = self;
@@ -28,7 +28,7 @@ const Counting = struct {
     max_messages: usize,
     next: a.ActorRef,
 
-    pub fn call(state: *Counting, self: *a.Actor, sys: *a.System, _: a.ActorRef, msg: *a.Any) anyerror!void {
+    pub fn handle(state: *@This(), self: *a.Actor, sys: *a.System, _: a.ActorRef, msg: *a.Any) anyerror!void {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
         if (msg.matches(a.ActorRef)) |r| {
@@ -54,7 +54,7 @@ const Counting = struct {
 
 const Initial = struct {
     max_messages: usize,
-    pub fn call(state: *Initial, self: *a.Actor, _: *a.System, _: a.ActorRef, msg: *a.Any) anyerror!void {
+    pub fn handle(state: *@This(), self: *a.Actor, _: *a.System, _: a.ActorRef, msg: *a.Any) anyerror!void {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
         if (msg.matches(a.ActorRef)) |r| {
@@ -160,7 +160,7 @@ pub fn main() !void {
             null,
             "",
             struct {
-                pub fn call(_: *@This(), _: *a.Actor, _: *a.System, _: a.ActorRef, msg: *a.Any) anyerror!void {
+                pub fn handle(_: *@This(), _: *a.Actor, _: *a.System, _: a.ActorRef, msg: *a.Any) anyerror!void {
                     if (msg.matches(i32)) |v| {
                         println("Anonymous Actor got value: {}", .{v});
                     }

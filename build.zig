@@ -141,8 +141,8 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
 
-    // const bench_mailbox_performance = make_exe(b, "bench_mailbox_performance", "bench/mailbox_performance.zig", cfg);
-    // b.installArtifact(bench_mailbox_performance);
+    const bench_mailbox_performance = make_exe(b, "bench_mailbox_performance", "bench/mailbox_performance.zig", cfg);
+    b.installArtifact(bench_mailbox_performance);
 
     // This *creates* a Run step in the build graph, to be executed when another
     // step is evaluated that depends on it. The next line below will establish

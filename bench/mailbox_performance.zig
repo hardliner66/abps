@@ -9,32 +9,35 @@ const eprintln = helper.eprintln;
 const config = @import("config");
 const ztracy = @import("ztracy");
 
-const ReceiverState = struct {
+const Receiver = struct {
     max_messages: usize,
     count: usize,
+
+    pub fn handle(state: *@This(), self: *a.Actor, sys: *a.System, _: a.ActorRef, msg: *a.Any) anyerror!void {
+        _ = self;
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
+        if (msg.matches(void)) |_| {
+            state.count += 1;
+            if (state.count == state.max_messages) {
+                sys.stop();
+            }
+        }
+    }
 };
 
-fn receiver_fn(self: *a.Actor, sys: *a.System, state: *ReceiverState, _: a.ActorRef, msg: *a.Any) anyerror!void {
-    _ = self;
-    const tracy_zone = ztracy.Zone(@src());
-    defer tracy_zone.End();
-    if (msg.matches(void)) |_| {
-        state.count += 1;
-        if (state.count == state.max_messages) {
-            sys.stop();
+const Sender = struct {
+    message_count: usize,
+    pub fn handle(state: *@This(), self: *a.Actor, sys: *a.System, from: a.ActorRef, msg: *a.Any) anyerror!void {
+        const tracy_zone = ztracy.Zone(@src());
+        defer tracy_zone.End();
+        if (msg.matches(void)) |_| {
+            for (0..state.message_count) |_| {
+                try sys.send(self.ref, from, void, void{});
+            }
         }
     }
-}
-
-fn sender_fn(self: *a.Actor, sys: *a.System, state: *usize, from: a.ActorRef, msg: *a.Any) anyerror!void {
-    const tracy_zone = ztracy.Zone(@src());
-    defer tracy_zone.End();
-    if (msg.matches(void)) |_| {
-        for (0..state.*) |_| {
-            try sys.send(self.ref, from, void, void{});
-        }
-    }
-}
+};
 
 pub fn main() !void {
     const tracy_zone = ztracy.Zone(@src());
@@ -105,9 +108,8 @@ pub fn main() !void {
         const receiver = try system.spawnWithName(
             null,
             "Receiver",
-            ReceiverState,
+            Receiver,
             .{ .count = 0, .max_messages = total },
-            &receiver_fn,
         );
         for (0..sender_count) |i| {
             var all_together: [100]u8 = undefined;
@@ -121,9 +123,8 @@ pub fn main() !void {
             const sender = try system.spawnWithName(
                 null,
                 sender_name,
-                usize,
-                message_count,
-                &sender_fn,
+                Sender,
+                .{ .message_count = message_count },
             );
             try system.send(receiver, sender, void, void{});
         }

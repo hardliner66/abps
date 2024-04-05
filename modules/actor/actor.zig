@@ -25,8 +25,8 @@ pub const ErasedBehavior = struct {
     instance: *anyopaque,
     allocator: Allocator,
 
-    // The call method signature expected by the system
-    call: *const fn (self: *Actor, sys: *System, from: ActorRef, msg: *Any) anyerror!void,
+    // The handle method signature expected by the system
+    handle: *const fn (self: *Actor, sys: *System, from: ActorRef, msg: *Any) anyerror!void,
 
     // Function to deallocate the behavior
     destroy: *const fn (self: *Self) void,
@@ -36,11 +36,11 @@ pub fn Behavior(comptime T: type) type {
     return struct {
         const Self = @This();
 
-        // The call method signature expected by the system
-        pub fn call(self: *Actor, sys: *System, from: ActorRef, msg: *Any) !void {
+        // The handle method signature expected by the system
+        fn handle(self: *Actor, sys: *System, from: ActorRef, msg: *Any) !void {
             const instance: *T = @alignCast(@ptrCast(self.behavior.instance));
-            // Forward the call to the instance's method
-            try instance.call(self, sys, from, msg);
+            // Forward the handle to the instance's method
+            try instance.handle(self, sys, from, msg);
         }
 
         // Factory function to create a new behavior
@@ -52,14 +52,14 @@ pub fn Behavior(comptime T: type) type {
             behavior.* = .{
                 .instance = @ptrCast(instance),
                 .allocator = allocator,
-                .call = &call,
+                .handle = &handle,
                 .destroy = &destroy,
             };
             return behavior;
         }
 
         // Function to deallocate the behavior
-        pub fn destroy(self: *ErasedBehavior) void {
+        fn destroy(self: *ErasedBehavior) void {
             const instance: *T = @alignCast(@ptrCast(self.instance));
             self.allocator.destroy(instance);
             self.allocator.destroy(self);
@@ -221,7 +221,7 @@ pub const Scheduler = struct {
             }
             for (self.mailboxes.items) |mb| {
                 if (mb.queue.pop()) |env| {
-                    mb.actor.behavior.call(mb.actor, self.system, env.from, &env.msg) catch {};
+                    mb.actor.behavior.handle(mb.actor, self.system, env.from, &env.msg) catch {};
                     if (!env.msg.read) {
                         env.msg.debug(mb.actor, env.msg.ptr);
                     }
