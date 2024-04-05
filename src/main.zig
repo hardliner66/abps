@@ -98,14 +98,14 @@ pub fn main() !void {
     }
 
     const use_gpa = res.args.use_gpa != 0;
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     if (use_gpa) {
-        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
         allocator = gpa.allocator();
     }
 
     const locked = res.args.locked != 0;
 
-    const cpu_count = res.args.cpu_count orelse try std.Thread.getCpuCount();
+    const cpu_count = res.args.cpu_count orelse try std.Thread.getCpuCount() / 2;
     const message_count = res.args.message_count orelse 1000;
 
     if (message_count > 999_999_999) {
@@ -123,38 +123,46 @@ pub fn main() !void {
     println("============================", .{});
     println("", .{});
 
-    var system = try a.System.init(allocator, .{ .cpu_count = cpu_count, .locked = locked });
-    defer system.deinit() catch {};
+    {
+        var system = try a.System.init(allocator, .{ .cpu_count = cpu_count, .locked = locked });
 
-    const first = try system.spawnWithName(
-        null,
-        "Counting Actor 1",
-        InitialState,
-        .{ .max_messages = message_count },
-        &initial,
-    );
-    var last: a.ActorRef = first;
-    for (0..cpu_count - 1) |i| {
-        var all_together: [100]u8 = undefined;
-        // You can use slice syntax with at least one runtime-known index on an
-        // array to convert an array into a slice.
-        var start: usize = 0;
-        _ = &start;
-        const all_together_slice = all_together[start..];
-        // String concatenation example.
-        const hello_world = try fmt.bufPrint(all_together_slice, "Counting Actor {}", .{i + 2});
-
-        last = try system.spawnWithName(
+        const first = try system.spawnWithName(
             null,
-            hello_world,
-            State,
-            .{ .next = last, .max_messages = message_count },
-            &counting,
+            "Counting Actor 1",
+            InitialState,
+            .{ .max_messages = message_count },
+            &initial,
         );
-    }
-    try system.send(first, first, []const u8, "test");
-    try system.send(first, first, a.ActorRef, last);
-    try system.send(first, first, i32, 1);
+        var last: a.ActorRef = first;
+        for (0..cpu_count - 1) |i| {
+            var all_together: [100]u8 = undefined;
+            // You can use slice syntax with at least one runtime-known index on an
+            // array to convert an array into a slice.
+            var start: usize = 0;
+            _ = &start;
+            const all_together_slice = all_together[start..];
+            // String concatenation example.
+            const hello_world = try fmt.bufPrint(all_together_slice, "Counting Actor {}", .{i + 2});
 
-    system.wait();
+            last = try system.spawnWithName(
+                null,
+                hello_world,
+                State,
+                .{ .next = last, .max_messages = message_count },
+                &counting,
+            );
+        }
+        try system.send(first, first, []const u8, "test");
+        try system.send(first, first, a.ActorRef, last);
+        try system.send(first, first, i32, 1);
+
+        system.wait();
+        try system.deinit();
+    }
+
+    if (use_gpa) {
+        if (gpa.detectLeaks()) {
+            eprintln("Leak detected!", .{});
+        }
+    }
 }

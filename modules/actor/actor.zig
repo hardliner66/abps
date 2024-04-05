@@ -8,6 +8,10 @@ const helper = @import("helper");
 const println = helper.println;
 const eprintln = helper.eprintln;
 
+fn WeakPtr(comptime T: type) type {
+    return *T;
+}
+
 const containers = @import("containers");
 const ztracy = @import("ztracy");
 
@@ -144,12 +148,12 @@ pub const Actor = struct {
     pub fn deinit(self: *Actor) void {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
-        self.state.deinit();
+        self.dealloc(self.allocator, self.state);
     }
 };
 
 pub const ActorRef = struct {
-    ref: *Mailbox,
+    ref: WeakPtr(Mailbox),
 };
 
 pub const DeadLetter = struct {
@@ -171,7 +175,8 @@ pub const Envelope = struct {
 pub const Mailbox = struct {
     actor: *Actor,
     queue: containers.Queue(*Envelope),
-    scheduler: *Scheduler,
+    scheduler: WeakPtr(Scheduler),
+    allocator: std.mem.Allocator,
 
     pub fn init(allocator: Allocator, actor: *Actor, scheduler: *Scheduler, locked: bool) !*@This() {
         const tracy_zone = ztracy.Zone(@src());
@@ -181,6 +186,7 @@ pub const Mailbox = struct {
         mb.actor = actor;
         mb.queue = containers.Queue(*Envelope).init(allocator, locked);
         mb.scheduler = scheduler;
+        mb.allocator = allocator;
 
         return mb;
     }
@@ -190,7 +196,11 @@ pub const Mailbox = struct {
         defer tracy_zone.End();
         while (self.queue.pop()) |env| {
             env.deinit();
+            self.allocator.destroy(env);
         }
+        self.queue.deinit();
+        self.actor.deinit();
+        self.allocator.destroy(self.actor);
     }
 };
 
@@ -200,8 +210,9 @@ pub const Scheduler = struct {
     mailboxes: std.ArrayList(*Mailbox),
     running: std.atomic.Value(bool),
     worker: std.Thread,
-    system: *System,
+    system: WeakPtr(System),
     cpu: usize,
+    allocator: Allocator,
 
     pub fn init(
         allocator: Allocator,
@@ -218,6 +229,7 @@ pub const Scheduler = struct {
         scheduler.running = std.atomic.Value(bool).init(true);
         scheduler.system = system;
         scheduler.cpu = cpu;
+        scheduler.allocator = allocator;
 
         const worker = try std.Thread.spawn(.{ .allocator = allocator }, work, .{scheduler});
         scheduler.worker = worker;
@@ -231,7 +243,10 @@ pub const Scheduler = struct {
         self.stop();
         while (self.mailboxes.popOrNull()) |mb| {
             mb.deinit();
+            self.allocator.destroy(mb);
         }
+        self.mailboxes.deinit();
+        self.new_mailboxes.deinit();
     }
 
     pub fn stop(self: *Scheduler) void {
@@ -263,7 +278,8 @@ pub const Scheduler = struct {
                     if (!env.msg.read) {
                         env.msg.debug(mb.actor, env.msg.ptr);
                     }
-                    env.msg.deinit();
+                    env.deinit();
+                    self.allocator.destroy(env);
                 }
             }
         }
@@ -304,10 +320,12 @@ pub const System = struct {
     pub fn deinit(self: *System) !void {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
-        for (try self.schedulers.toOwnedSlice()) |scheduler| {
+        while (self.schedulers.popOrNull()) |scheduler| {
             try scheduler.deinit();
+            self.allocator.destroy(scheduler);
         }
         self.schedulers.deinit();
+        self.allocator.destroy(self);
     }
 
     pub fn spawnWithName(self: *System, parent: ?ActorRef, name: []const u8, T: type, state: T, behavior: TypedBehavior(T)) !ActorRef {
