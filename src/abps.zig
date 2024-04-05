@@ -45,7 +45,7 @@ const Counting = struct {
                 try sys.send(self.ref, state.next, i32, v + 1);
             } else {
                 println("Done: {}", .{v});
-                try self.become(try a.Behavior(Die).create(sys.allocator, .{}));
+                try self.become(Die, .{});
                 try sys.send(self.ref, self.ref, void, {});
             }
         }
@@ -54,11 +54,11 @@ const Counting = struct {
 
 const Initial = struct {
     max_messages: usize,
-    pub fn call(state: *Initial, self: *a.Actor, sys: *a.System, _: a.ActorRef, msg: *a.Any) anyerror!void {
+    pub fn call(state: *Initial, self: *a.Actor, _: *a.System, _: a.ActorRef, msg: *a.Any) anyerror!void {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
         if (msg.matches(a.ActorRef)) |r| {
-            try self.become(try a.Behavior(Counting).create(sys.allocator, .{ .next = r, .max_messages = state.max_messages }));
+            try self.become(Counting, .{ .next = r, .max_messages = state.max_messages });
         }
     }
 };
@@ -131,7 +131,8 @@ pub fn main() !void {
         const first = try system.spawnWithName(
             null,
             "Counting Actor 1",
-            try a.Behavior(Initial).create(allocator, .{ .max_messages = message_count }),
+            Initial,
+            .{ .max_messages = message_count },
         );
         var last: a.ActorRef = first;
         for (0..cpu_count - 1) |i| {
@@ -147,7 +148,8 @@ pub fn main() !void {
             last = try system.spawnWithName(
                 null,
                 hello_world,
-                try a.Behavior(Counting).create(allocator, .{ .next = last, .max_messages = message_count }),
+                Counting,
+                .{ .next = last, .max_messages = message_count },
             );
         }
         try system.send(first, first, []const u8, "test");
@@ -157,15 +159,14 @@ pub fn main() !void {
         const abcd = try system.spawnWithName(
             null,
             "",
-            try a.Behavior(struct {
-                const Self = @This();
-
-                pub fn call(_: *Self, _: *a.Actor, _: *a.System, _: a.ActorRef, msg: *a.Any) anyerror!void {
+            struct {
+                pub fn call(_: *@This(), _: *a.Actor, _: *a.System, _: a.ActorRef, msg: *a.Any) anyerror!void {
                     if (msg.matches(i32)) |v| {
                         println("Anonymous Actor got value: {}", .{v});
                     }
                 }
-            }).create(allocator, .{}),
+            },
+            .{},
         );
         try system.send(abcd, abcd, i32, 5);
 

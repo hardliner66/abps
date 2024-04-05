@@ -75,19 +75,19 @@ pub const Actor = struct {
     dealloc: *const fn (allocator: Allocator, ptr: *anyopaque) void,
     parent: ?ActorRef,
 
-    pub fn become(self: *Actor, behavior: *ErasedBehavior) !void {
+    pub fn become(self: *Actor, comptime T: type, behavior: T) !void {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
         self.behavior.destroy(self.behavior);
-        self.behavior = behavior;
+        self.behavior = try Behavior(T).create(self.allocator, behavior);
     }
 
-    pub fn init(allocator: Allocator, behavior: *ErasedBehavior) !*Actor {
+    pub fn init(allocator: Allocator, comptime T: type, behavior: T) !*Actor {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
         var actor = try allocator.create(Actor);
         actor.allocator = allocator;
-        actor.behavior = behavior;
+        actor.behavior = try Behavior(T).create(actor.allocator, behavior);
 
         return actor;
     }
@@ -275,10 +275,10 @@ pub const System = struct {
         self.allocator.destroy(self);
     }
 
-    pub fn spawnWithName(self: *System, parent: ?ActorRef, name: []const u8, behavior: *ErasedBehavior) !ActorRef {
+    pub fn spawnWithName(self: *System, parent: ?ActorRef, name: []const u8, comptime T: type, behavior: T) !ActorRef {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
-        const ref = try self.spawn(behavior);
+        const ref = try self.spawn(T, behavior);
         ref.ref.actor.name = name;
         ref.ref.actor.parent = parent;
         return ref;
@@ -300,11 +300,12 @@ pub const System = struct {
         return ref;
     }
 
-    pub fn spawn(self: *System, behavior: *ErasedBehavior) !ActorRef {
+    pub fn spawn(self: *System, comptime T: type, behavior: T) !ActorRef {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
         const actor = try Actor.init(
             self.allocator,
+            T,
             behavior,
         );
 
