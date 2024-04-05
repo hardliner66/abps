@@ -1,5 +1,46 @@
 const std = @import("std");
 
+pub const ExeConfig = struct {
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    ztracy: *std.Build.Dependency,
+    helper: *std.Build.Module,
+    clap: *std.Build.Module,
+    actor: *std.Build.Module,
+    use_tracy: bool,
+    ztracy_module: *std.Build.Module,
+};
+
+pub fn make_exe(
+    b: *std.Build,
+    name: []const u8,
+    main_file: []const u8,
+    cfg: ExeConfig,
+) *std.Build.Step.Compile {
+    const exe = b.addExecutable(.{
+        .name = name,
+        .root_source_file = .{ .path = main_file },
+        .target = cfg.target,
+        .optimize = cfg.optimize,
+    });
+
+    exe.root_module.addImport("ztracy", cfg.ztracy_module);
+    exe.linkLibrary(cfg.ztracy.artifact("tracy"));
+
+    const options = b.addOptions();
+    options.addOption(bool, "use_tracy", cfg.use_tracy);
+
+    exe.root_module.addImport("helper", cfg.helper);
+    exe.root_module.addImport("clap", cfg.clap);
+    exe.root_module.addImport("actor", cfg.actor);
+
+    exe.root_module.addOptions("config", options);
+
+    exe.linkLibCpp();
+
+    return exe;
+}
+
 // Although this function looks imperative, note that its job is to
 // declaratively construct a build graph that will be executed by an external
 // runner.
@@ -77,31 +118,31 @@ pub fn build(b: *std.Build) void {
     actor.addImport("ztracy", ztracy_module);
     actor.addOptions("config", actor_options);
 
-    const exe = b.addExecutable(.{
-        .name = "abps",
-        .root_source_file = .{ .path = "src/main.zig" },
+    const cfg = .{
         .target = target,
         .optimize = optimize,
-    });
-
-    exe.root_module.addImport("ztracy", ztracy_module);
-    exe.linkLibrary(ztracy.artifact("tracy"));
-
-    const options = b.addOptions();
-    options.addOption(bool, "use_tracy", use_tracy);
-
-    exe.root_module.addImport("helper", helper);
-    exe.root_module.addImport("clap", clap);
-    exe.root_module.addImport("actor", actor);
-
-    exe.root_module.addOptions("config", options);
-
-    exe.linkLibCpp();
+        .ztracy = ztracy,
+        .helper = helper,
+        .clap = clap,
+        .actor = actor,
+        .use_tracy = use_tracy,
+        .ztracy_module = ztracy_module,
+    };
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
+    const exe = make_exe(
+        b,
+        "abps",
+        "src/abps.zig",
+        cfg,
+    );
+
     b.installArtifact(exe);
+
+    const bench_mailbox_performance = make_exe(b, "bench_mailbox_performance", "bench/mailbox_performance.zig", cfg);
+    b.installArtifact(bench_mailbox_performance);
 
     // This *creates* a Run step in the build graph, to be executed when another
     // step is evaluated that depends on it. The next line below will establish
@@ -126,16 +167,6 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
-    // Creates a step for unit testing. This only builds the test executable
-    // but does not run it.
-    const lib_unit_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/root.zig" },
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
-
     const exe_unit_tests = b.addTest(.{
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
@@ -148,6 +179,5 @@ pub fn build(b: *std.Build) void {
     // the `zig build --help` menu, providing a way for the user to request
     // running the unit tests.
     const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
 }

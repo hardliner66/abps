@@ -125,6 +125,7 @@ pub fn main() !void {
 
     {
         var system = try a.System.init(allocator, .{ .cpu_count = cpu_count, .locked = locked });
+        defer system.deinit() catch {};
 
         const first = try system.spawnWithName(
             null,
@@ -157,7 +158,6 @@ pub fn main() !void {
         try system.send(first, first, i32, 1);
 
         system.wait();
-        try system.deinit();
     }
 
     if (use_gpa) {
