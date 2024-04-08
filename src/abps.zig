@@ -10,11 +10,9 @@ const config = @import("config");
 const ztracy = @import("ztracy");
 
 const Die = struct {
-    pub fn handle(_: *Die, self: *a.Actor, sys: *a.System, from: a.ActorRef, msg: *a.Any) anyerror!void {
+    pub fn handle(_: *Die, _: *a.Actor, sys: *a.System, _: ?a.ActorRef, msg: *a.Any) anyerror!void {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
-        _ = self;
-        _ = from;
         // make sure we dont get a "message was not handled!" message
         _ = msg.matches(void);
         sys.stop();
@@ -24,11 +22,15 @@ const Die = struct {
 const zigTime = std.time;
 const cTime = @cImport(@cInclude("time.h"));
 
+const SomeError = error{
+    SomeError,
+};
+
 const Counting = struct {
     max_messages: usize,
     next: a.ActorRef,
 
-    pub fn handle(state: *@This(), self: *a.Actor, sys: *a.System, _: a.ActorRef, msg: *a.Any) anyerror!void {
+    pub fn handle(state: *@This(), self: *a.Actor, sys: *a.System, _: ?a.ActorRef, msg: *a.Any) anyerror!void {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
         if (msg.matches(a.ActorRef)) |r| {
@@ -47,6 +49,7 @@ const Counting = struct {
                 println("Done: {}", .{v});
                 try self.become(Die, .{});
                 try sys.send(self.ref, self.ref, void, {});
+                return SomeError.SomeError;
             }
         }
     }
@@ -54,7 +57,7 @@ const Counting = struct {
 
 const Initial = struct {
     max_messages: usize,
-    pub fn handle(state: *@This(), self: *a.Actor, _: *a.System, _: a.ActorRef, msg: *a.Any) anyerror!void {
+    pub fn handle(state: *@This(), self: *a.Actor, _: *a.System, _: ?a.ActorRef, msg: *a.Any) anyerror!void {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
         if (msg.matches(a.ActorRef)) |r| {
@@ -160,7 +163,7 @@ pub fn main() !void {
             null,
             "",
             struct {
-                pub fn handle(_: *@This(), _: *a.Actor, _: *a.System, _: a.ActorRef, msg: *a.Any) anyerror!void {
+                pub fn handle(_: *@This(), _: *a.Actor, _: *a.System, _: ?a.ActorRef, msg: *a.Any) anyerror!void {
                     if (msg.matches(i32)) |v| {
                         println("Anonymous Actor got value: {}", .{v});
                     }

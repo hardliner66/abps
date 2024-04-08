@@ -26,7 +26,7 @@ pub const ErasedBehavior = struct {
     allocator: Allocator,
 
     // The handle method signature expected by the system
-    handle: *const fn (self: *Actor, sys: *System, from: ActorRef, msg: *Any) anyerror!void,
+    handle: *const fn (self: *Actor, sys: *System, from: ?ActorRef, msg: *Any) anyerror!void,
 
     // Function to deallocate the behavior
     destroy: *const fn (self: *Self) void,
@@ -37,7 +37,7 @@ pub fn Behavior(comptime T: type) type {
         const Self = @This();
 
         // The handle method signature expected by the system
-        fn handle(self: *Actor, sys: *System, from: ActorRef, msg: *Any) !void {
+        fn handle(self: *Actor, sys: *System, from: ?ActorRef, msg: *Any) !void {
             const instance: *T = @alignCast(@ptrCast(self.behavior.instance));
             // Forward the handle to the instance's method
             try instance.handle(self, sys, from, msg);
@@ -69,7 +69,7 @@ pub fn Behavior(comptime T: type) type {
 
 pub const Actor = struct {
     ref: ActorRef,
-    name: ?[]const u8,
+    name: []const u8,
     behavior: *ErasedBehavior,
     allocator: Allocator,
     dealloc: *const fn (allocator: Allocator, ptr: *anyopaque) void,
@@ -109,7 +109,7 @@ pub const DeadLetter = struct {
 
 pub const Envelope = struct {
     to: ActorRef,
-    from: ActorRef,
+    from: ?ActorRef,
     msg: Any,
 
     pub fn deinit(self: *Envelope) void {
@@ -221,7 +221,17 @@ pub const Scheduler = struct {
             }
             for (self.mailboxes.items) |mb| {
                 if (mb.queue.pop()) |env| {
-                    mb.actor.behavior.handle(mb.actor, self.system, env.from, &env.msg) catch {};
+                    mb.actor.behavior.handle(mb.actor, self.system, env.from, &env.msg) catch |err| {
+                        if (mb.actor.parent) |p| {
+                            try self.system.send(mb.actor.ref, p, anyerror, err);
+                        } else {
+                            eprintln("Actor Error but no parent to send to. {} @ {*}.\"{s}\"", .{
+                                err,
+                                mb.actor,
+                                mb.actor.name,
+                            });
+                        }
+                    };
                     if (!env.msg.read) {
                         env.msg.debug(mb.actor, env.msg.ptr);
                     }
@@ -278,9 +288,8 @@ pub const System = struct {
     pub fn spawnWithName(self: *System, parent: ?ActorRef, name: []const u8, comptime T: type, behavior: T) !ActorRef {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
-        const ref = try self.spawn(T, behavior);
+        const ref = try self.spawn(parent, T, behavior);
         ref.ref.actor.name = name;
-        ref.ref.actor.parent = parent;
         return ref;
     }
 
@@ -300,7 +309,7 @@ pub const System = struct {
         return ref;
     }
 
-    pub fn spawn(self: *System, comptime T: type, behavior: T) !ActorRef {
+    pub fn spawn(self: *System, parent: ?ActorRef, comptime T: type, behavior: T) !ActorRef {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
         const actor = try Actor.init(
@@ -308,6 +317,8 @@ pub const System = struct {
             T,
             behavior,
         );
+        actor.parent = parent;
+        actor.name = "<unnamed>";
 
         return try self.createRefAndAdd(actor);
     }
@@ -320,7 +331,7 @@ pub const System = struct {
         }
     }
 
-    pub fn send(self: *System, from: ActorRef, to: ActorRef, comptime T: type, value: T) !void {
+    pub fn send(self: *System, from: ?ActorRef, to: ActorRef, comptime T: type, value: T) !void {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
         const m = try self.allocator.create(Envelope);
@@ -385,14 +396,13 @@ pub fn any(comptime T: type) type {
         fn debug(actor: *Actor, ptr: erase.AnyPointer) void {
             const tracy_zone = ztracy.Zone(@src());
             defer tracy_zone.End();
-            const name = actor.name orelse "<unnamed>";
             if (ptr.tryCast(*[]const u8)) |s| {
-                eprintln("Message was not handled by {*}.\"{s}\": {s}", .{ actor, name, s.* });
+                eprintln("Message was not handled by {*}.\"{s}\": {s}", .{ actor, actor.name, s.* });
             } else if (ptr.tryCast(*[]u8)) |s| {
-                eprintln("Message was not handled by {*}.\"{s}\": {s}", .{ actor, name, s.* });
+                eprintln("Message was not handled by {*}.\"{s}\": {s}", .{ actor, actor.name, s.* });
             } else {
                 const p = ptr.cast(*T);
-                eprintln("Message was not handled by {*}.\"{s}\": {any}", .{ actor, name, p.* });
+                eprintln("Message was not handled by {*}.\"{s}\": {any}", .{ actor, actor.name, p.* });
             }
         }
 
