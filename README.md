@@ -1,5 +1,7 @@
 # ABPS - Actor Based Programming System
 
+[_TOC_]
+
 ## What it currently is
 
 An experimental actor framework which covers some of the basics.
