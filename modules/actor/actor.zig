@@ -235,7 +235,7 @@ pub const Scheduler = struct {
                             });
                         }
                     };
-                    if (!env.msg.read) {
+                    if (!env.msg.read and self.system.options.debug) {
                         env.msg.debug(mb.actor, env.msg.ptr);
                     }
                     env.deinit();
@@ -249,6 +249,7 @@ pub const Scheduler = struct {
 pub const SystemOptions = struct {
     cpu_count: ?usize,
     locked: bool,
+    debug: bool,
 };
 
 pub const System = struct {

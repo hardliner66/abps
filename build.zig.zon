@@ -16,6 +16,7 @@
     // internet connectivity.
     .dependencies = .{
       .ztracy = .{ .path = "extern/zig-gamedev/libs/ztracy", },
+      .string = .{.path = "extern/zig-string", },
         // See `zig fetch --save <url>` for a command-line interface for adding dependencies.
         //.example = .{
         //    // When updating this field to a new URL, be sure to delete the corresponding

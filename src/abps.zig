@@ -108,6 +108,7 @@ pub fn main() !void {
     }
 
     const locked = res.args.locked != 0;
+    const debug = res.args.debug != 0;
 
     const cpu_count = res.args.cpu_count orelse (try std.Thread.getCpuCount() / 2);
     const message_count = res.args.message_count orelse 1000;
@@ -128,7 +129,11 @@ pub fn main() !void {
     println("", .{});
 
     {
-        var system = try a.System.init(allocator, .{ .cpu_count = cpu_count, .locked = locked });
+        var system = try a.System.init(allocator, .{
+            .cpu_count = cpu_count,
+            .locked = locked,
+            .debug = debug,
+        });
         defer system.deinit() catch {};
 
         const first = try system.spawnWithName(
