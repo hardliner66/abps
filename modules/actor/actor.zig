@@ -1,7 +1,10 @@
+//! This Source Code Form is subject to the terms of the Mozilla Public
+//! License, v. 2.0. If a copy of the MPL was not distributed with this
+//! file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
-const erase = @import("erase.zig");
 const config = @import("config");
 
 const helper = @import("helper");
@@ -353,20 +356,36 @@ pub const System = struct {
     }
 };
 
+const AnyDealloc = *const fn (allocator: Allocator, ptr: *anyopaque) void;
+const AnyDebug = *const fn (actor: *Actor, ptr: *anyopaque) void;
 pub const Any = struct {
-    ptr: erase.AnyPointer,
+    ptr: *anyopaque,
     allocator: Allocator,
-    dealloc: *const fn (allocator: Allocator, ptr: erase.AnyPointer) void,
-    debug: *const fn (actor: *Actor, ptr: erase.AnyPointer) void,
+    dealloc: AnyDealloc,
+    debug: AnyDebug,
     read: bool,
+    type_name: []const u8,
+
+    fn init(allocator: Allocator, comptime T: type, value: T, dealloc: AnyDealloc, debug: AnyDebug) !Any {
+        const ptr = try allocator.create(T);
+        ptr.* = value;
+        return .{
+            .ptr = @ptrCast(ptr),
+            .allocator = allocator,
+            .dealloc = dealloc,
+            .debug = debug,
+            .read = false,
+            .type_name = @typeName(T),
+        };
+    }
 
     pub fn matches(self: *Any, comptime T: type) ?T {
         const tracy_zone = ztracy.Zone(@src());
         defer tracy_zone.End();
-        const ptr = self.ptr.tryCast(*T);
-        if (ptr) |p| {
+        if (std.mem.eql(u8, self.type_name, @typeName(T))) {
             self.read = true;
-            return p.*;
+            const ptr: *T = @alignCast(@ptrCast(self.ptr));
+            return ptr.*;
         }
         return null;
     }
@@ -380,50 +399,40 @@ pub const Any = struct {
 
 pub fn any(comptime T: type) type {
     return struct {
-        ptr: erase.AnyPointer,
+        ptr: *anyopaque,
         allocator: Allocator,
-        dealloc: *const fn (allocator: Allocator, ptr: erase.AnyPointer) void,
-        debug: *const fn (actor: *Actor, ptr: erase.AnyPointer) void,
+        dealloc: *const fn (allocator: Allocator, ptr: *anyopaque) void,
+        debug: *const fn (actor: *Actor, ptr: *anyopaque) void,
         read: bool,
 
-        fn dealloc(allocator: Allocator, ptr: erase.AnyPointer) void {
+        fn dealloc(allocator: Allocator, ptr: *anyopaque) void {
             const tracy_zone = ztracy.Zone(@src());
             defer tracy_zone.End();
-            const p = ptr.cast(*T);
+            const p: *T = @alignCast(@ptrCast(ptr));
             allocator.destroy(p);
         }
 
-        fn debug(actor: *Actor, ptr: erase.AnyPointer) void {
+        fn debug(actor: *Actor, ptr: *anyopaque) void {
             const tracy_zone = ztracy.Zone(@src());
             defer tracy_zone.End();
-            if (ptr.tryCast(*[]const u8)) |s| {
-                eprintln("Message was not handled by {*}.\"{s}\": {s}", .{ actor, actor.name, s.* });
-            } else if (ptr.tryCast(*[]u8)) |s| {
-                eprintln("Message was not handled by {*}.\"{s}\": {s}", .{ actor, actor.name, s.* });
-            } else {
-                const p = ptr.cast(*T);
-                eprintln("Message was not handled by {*}.\"{s}\": {any}", .{ actor, actor.name, p.* });
-            }
+            const p: *T = @alignCast(@ptrCast(ptr));
+            const format_string = comptime if (std.mem.eql(u8, @typeName(T), @typeName(*[]const u8)))
+                "Message was not handled by {*}.\"{s}\": {s}"
+            else if (std.mem.eql(u8, @typeName(T), @typeName(*[]u8)))
+                "Message was not handled by {*}.\"{s}\": {s}"
+            else if (std.mem.eql(u8, @typeName(T), @typeName([]const u8)))
+                "Message was not handled by {*}.\"{s}\": {s}"
+            else if (std.mem.eql(u8, @typeName(T), @typeName([]u8)))
+                "Message was not handled by {*}.\"{s}\": {s}"
+            else
+                "Message was not handled by {*}.\"{s}\": {any}";
+            eprintln(format_string, .{ actor, actor.name, p.* });
         }
 
         pub fn init(allocator: Allocator, v: T) !Any {
             const tracy_zone = ztracy.Zone(@src());
             defer tracy_zone.End();
-            const value = try allocator.create(T);
-            value.* = v;
-            return Any{
-                .ptr = erase.AnyPointer.make(*T, value),
-                .read = false,
-                .allocator = allocator,
-                .dealloc = &dealloc,
-                .debug = &debug,
-            };
+            return try Any.init(allocator, T, v, &dealloc, &debug);
         }
     };
 }
-
-// pub fn any(allocator: Allocator, comptime T: type, v: T) !Any {
-//     const tracy_zone = ztracy.Zone(@src());
-//     defer tracy_zone.End();
-//     return Any.init(allocator, T, v);
-// }
