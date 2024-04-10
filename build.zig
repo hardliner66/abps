@@ -3,13 +3,34 @@ const std = @import("std");
 pub const ExeConfig = struct {
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
-    ztracy: *std.Build.Dependency,
     helper: *std.Build.Module,
     clap: *std.Build.Module,
     actor: *std.Build.Module,
     use_tracy: bool,
-    ztracy_module: *std.Build.Module,
 };
+
+pub fn add_tracy(
+    exe: *std.Build.Step.Compile,
+    ztracy: *std.Build.Dependency,
+    ztracy_module: *std.Build.Module,
+) void {
+    exe.root_module.addImport("ztracy", ztracy_module);
+    exe.linkLibrary(ztracy.artifact("tracy"));
+}
+
+pub fn add_fake_tracy(
+    b: *std.Build,
+    exe: *std.Build.Step.Compile,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) void {
+    const fake_tracy = b.createModule(.{
+        .root_source_file = .{ .path = "modules/fake_tracy/fake_tracy.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+    exe.root_module.addImport("ztracy", fake_tracy);
+}
 
 pub fn make_exe(
     b: *std.Build,
@@ -23,9 +44,6 @@ pub fn make_exe(
         .target = cfg.target,
         .optimize = cfg.optimize,
     });
-
-    exe.root_module.addImport("ztracy", cfg.ztracy_module);
-    exe.linkLibrary(cfg.ztracy.artifact("tracy"));
 
     const options = b.addOptions();
     options.addOption(bool, "use_tracy", cfg.use_tracy);
@@ -91,17 +109,19 @@ pub fn build(b: *std.Build) void {
     });
     containers.addImport("ztracy", ztracy_module);
 
-    const release_flags = [_][]const u8{};
-    const debug_flags = [_][]const u8{"-O3"};
-    const flags = if (optimize == .Debug) &debug_flags else &release_flags;
+    if (!target.result.cpu.arch.isARM()) {
+        const release_flags = [_][]const u8{};
+        const debug_flags = [_][]const u8{"-O3"};
+        const flags = if (optimize == .Debug) &debug_flags else &release_flags;
 
-    containers.addIncludePath(.{ .path = "extern/concurrentqueue" });
-    containers.addIncludePath(.{ .path = "extern/concurrentqueue/c_api" });
-    containers.addIncludePath(.{ .path = "extern/concurrentqueue/internal" });
-    containers.addCSourceFile(.{
-        .file = .{ .path = "extern/concurrentqueue/c_api/concurrentqueue.cpp" },
-        .flags = flags,
-    });
+        containers.addIncludePath(.{ .path = "extern/concurrentqueue" });
+        containers.addIncludePath(.{ .path = "extern/concurrentqueue/c_api" });
+        containers.addIncludePath(.{ .path = "extern/concurrentqueue/internal" });
+        containers.addCSourceFile(.{
+            .file = .{ .path = "extern/concurrentqueue/c_api/concurrentqueue.cpp" },
+            .flags = flags,
+        });
+    }
 
     const actor = b.createModule(.{
         .root_source_file = .{ .path = "modules/actor/actor.zig" },
@@ -121,12 +141,10 @@ pub fn build(b: *std.Build) void {
     const cfg = .{
         .target = target,
         .optimize = optimize,
-        .ztracy = ztracy,
         .helper = helper,
         .clap = clap,
         .actor = actor,
         .use_tracy = use_tracy,
-        .ztracy_module = ztracy_module,
     };
 
     // This declares intent for the executable to be installed into the
@@ -138,10 +156,20 @@ pub fn build(b: *std.Build) void {
         "src/abps.zig",
         cfg,
     );
+    if (use_tracy) {
+        add_tracy(exe, ztracy, ztracy_module);
+    } else {
+        add_fake_tracy(b, exe, target, optimize);
+    }
 
     b.installArtifact(exe);
 
     const bench_mailbox_performance = make_exe(b, "bench_mailbox_performance", "bench/mailbox_performance.zig", cfg);
+    if (use_tracy) {
+        add_tracy(bench_mailbox_performance, ztracy, ztracy_module);
+    } else {
+        add_fake_tracy(b, bench_mailbox_performance, target, optimize);
+    }
     b.installArtifact(bench_mailbox_performance);
 
     // This *creates* a Run step in the build graph, to be executed when another

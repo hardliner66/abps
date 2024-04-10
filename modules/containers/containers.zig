@@ -3,11 +3,14 @@
 //! file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const ztracy = @import("ztracy");
 
-const lfq = @import("lfqueue.zig");
+const lfq = if (builtin.target.cpu.arch != .arm) @import("lfqueue.zig") else struct {
+    pub const LfQueue = LQueue;
+};
 
 pub const LfQueue = lfq.LfQueue;
 
