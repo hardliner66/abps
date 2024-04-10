@@ -110,7 +110,11 @@ pub fn main() !void {
     const locked = res.args.locked != 0;
     const debug = res.args.debug != 0;
 
-    const cpu_count = res.args.cpu_count orelse (try std.Thread.getCpuCount() / 2);
+    var default_cpu_count = (try std.Thread.getCpuCount() / 2);
+    if (default_cpu_count <= 0) {
+        default_cpu_count = 1;
+    }
+    const cpu_count = res.args.cpu_count orelse default_cpu_count;
     const message_count = res.args.message_count orelse 1000;
 
     if (message_count > 999_999_999) {

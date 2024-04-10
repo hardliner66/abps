@@ -83,7 +83,12 @@ pub fn main() !void {
     const locked = res.args.locked != 0;
     const debug = res.args.debug != 0;
 
-    const sender_count = res.args.sender_count orelse (try std.Thread.getCpuCount() / 2) - 1;
+    var default_cpu_count = (try std.Thread.getCpuCount() / 2);
+    if (default_cpu_count <= 0) {
+        default_cpu_count = 1;
+    }
+
+    const sender_count = res.args.sender_count orelse default_cpu_count;
     const message_count = res.args.message_count orelse 1000;
     const per_sender = message_count / sender_count;
     const rest = message_count - (per_sender * sender_count);
