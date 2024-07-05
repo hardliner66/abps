@@ -25,7 +25,7 @@ pub fn add_fake_tracy(
     optimize: std.builtin.OptimizeMode,
 ) void {
     const fake_tracy = b.createModule(.{
-        .root_source_file = .{ .path = "modules/fake_tracy/fake_tracy.zig" },
+        .root_source_file = b.path("modules/fake_tracy/fake_tracy.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -40,7 +40,7 @@ pub fn make_exe(
 ) *std.Build.Step.Compile {
     const exe = b.addExecutable(.{
         .name = name,
-        .root_source_file = .{ .path = main_file },
+        .root_source_file = b.path(main_file),
         .target = cfg.target,
         .optimize = cfg.optimize,
     });
@@ -83,7 +83,7 @@ pub fn build(b: *std.Build) void {
     actor_options.addOption(bool, "use_tracy", use_tracy);
 
     const clap = b.createModule(.{
-        .root_source_file = .{ .path = "extern/zig-clap/clap.zig" },
+        .root_source_file = b.path("extern/zig-clap/clap.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -96,14 +96,14 @@ pub fn build(b: *std.Build) void {
     const ztracy_module = ztracy.module("root");
 
     const helper = b.createModule(.{
-        .root_source_file = .{ .path = "modules/helper/helper.zig" },
+        .root_source_file = b.path("modules/helper/helper.zig"),
         .target = target,
         .optimize = optimize,
     });
     helper.addImport("ztracy", ztracy_module);
 
     const containers = b.createModule(.{
-        .root_source_file = .{ .path = "modules/containers/containers.zig" },
+        .root_source_file = b.path("modules/containers/containers.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -114,24 +114,24 @@ pub fn build(b: *std.Build) void {
         const debug_flags = [_][]const u8{"-O3"};
         const flags = if (optimize == .Debug) &debug_flags else &release_flags;
 
-        containers.addIncludePath(.{ .path = "extern/concurrentqueue" });
-        containers.addIncludePath(.{ .path = "extern/concurrentqueue/c_api" });
-        containers.addIncludePath(.{ .path = "extern/concurrentqueue/internal" });
+        containers.addIncludePath(b.path("extern/concurrentqueue"));
+        containers.addIncludePath(b.path("extern/concurrentqueue/c_api"));
+        containers.addIncludePath(b.path("extern/concurrentqueue/internal"));
         containers.addCSourceFile(.{
-            .file = .{ .path = "extern/concurrentqueue/c_api/concurrentqueue.cpp" },
+            .file = b.path("extern/concurrentqueue/c_api/concurrentqueue.cpp"),
             .flags = flags,
         });
     }
 
     const actor = b.createModule(.{
-        .root_source_file = .{ .path = "modules/actor/actor.zig" },
+        .root_source_file = b.path("modules/actor/actor.zig"),
         .target = target,
         .optimize = optimize,
     });
     if (target.result.os.tag == .windows) {
-        actor.addIncludePath(.{ .path = "c/win" });
+        actor.addIncludePath(b.path("c/win"));
     } else {
-        actor.addIncludePath(.{ .path = "c/linux" });
+        actor.addIncludePath(b.path("c/linux"));
     }
     actor.addImport("helper", helper);
     actor.addImport("containers", containers);
@@ -196,7 +196,7 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&run_cmd.step);
 
     const exe_unit_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
