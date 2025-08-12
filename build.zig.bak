@@ -71,11 +71,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const release_flags = [_][]const u8{};
-    const debug_flags = [_][]const u8{"-O3"};
-    const flags = if (optimize == .Debug) &debug_flags else &release_flags;
-
     if (!target.result.cpu.arch.isArm()) {
+        const release_flags = [_][]const u8{};
+        const debug_flags = [_][]const u8{"-O3"};
+        const flags = if (optimize == .Debug) &debug_flags else &release_flags;
+
         containers.addIncludePath(b.path("extern/concurrentqueue"));
         containers.addIncludePath(b.path("extern/concurrentqueue/c_api"));
         containers.addIncludePath(b.path("extern/concurrentqueue/internal"));
@@ -116,12 +116,6 @@ pub fn build(b: *std.Build) void {
         "src/abps.zig",
         cfg,
     );
-
-    exe.addIncludePath(b.path("modules/janet"));
-    exe.addCSourceFile(.{
-        .file = b.path("modules/janet/janet.c"),
-        .flags = flags,
-    });
 
     b.installArtifact(exe);
 

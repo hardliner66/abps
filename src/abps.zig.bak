@@ -7,7 +7,6 @@ const clap = @import("clap");
 const println = helper.println;
 const eprintln = helper.eprintln;
 const config = @import("config");
-const janet = @cImport(@cInclude("janet.h"));
 
 const Die = struct {
     pub fn handle(_: *Die, _: *a.Actor, sys: *a.System, _: ?a.ActorRef, msg: *a.Any) anyerror!void {
@@ -58,7 +57,6 @@ const Initial = struct {
             try self.become(Counting, .{ .next = r, .max_messages = state.max_messages });
         }
     }
-};
 
 fn spawn(argc: i32, argv: [*c]janet.Janet) callconv(.c) janet.Janet {
     var sum: f64 = 0;
