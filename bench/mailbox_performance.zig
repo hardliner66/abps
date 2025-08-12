@@ -7,7 +7,6 @@ const clap = @import("clap");
 const println = helper.println;
 const eprintln = helper.eprintln;
 const config = @import("config");
-const ztracy = @import("ztracy");
 
 const Receiver = struct {
     max_messages: usize,
@@ -15,8 +14,6 @@ const Receiver = struct {
 
     pub fn handle(state: *@This(), self: *a.Actor, sys: *a.System, _: ?a.ActorRef, msg: *a.Any) anyerror!void {
         _ = self;
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
         if (msg.matches(void)) |_| {
             state.count += 1;
             if (state.count == state.max_messages) {
@@ -29,8 +26,6 @@ const Receiver = struct {
 const Sender = struct {
     message_count: usize,
     pub fn handle(state: *@This(), self: *a.Actor, sys: *a.System, from: ?a.ActorRef, msg: *a.Any) anyerror!void {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
         if (msg.matches(void)) |_| {
             for (0..state.message_count) |_| {
                 try sys.send(self.ref, from.?, void, void{});
@@ -40,8 +35,6 @@ const Sender = struct {
 };
 
 pub fn main() !void {
-    const tracy_zone = ztracy.Zone(@src());
-    defer tracy_zone.End();
     const params = comptime clap.parseParamsComptime(
         \\-h                           Display usage and exit.
         \\    --help                   Display this help and exit.
@@ -59,19 +52,18 @@ pub fn main() !void {
         .diagnostic = &diag,
         .allocator = allocator,
     }) catch |err| {
-        // Report useful error and exit
-        diag.report(std.io.getStdErr().writer(), err) catch {};
-        _ = try clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
+        // Report useful error and exit.
+        try diag.reportToFile(.stderr(), err);
         return err;
     };
     defer res.deinit();
 
     if (res.args.help != 0) {
-        return clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
+        return clap.helpToFile(.stderr(), clap.Help, &params, .{});
     }
 
     if (res.args.h != 0) {
-        return clap.usage(std.io.getStdErr().writer(), clap.Help, &params);
+        return clap.usageToFile(.stdout(), clap.Help, &params);
     }
 
     const use_gpa = res.args.use_gpa != 0;

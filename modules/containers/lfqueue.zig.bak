@@ -7,11 +7,10 @@ const cq = @cImport({
 
 fn isPointer(comptime T: type) bool {
     comptime var ti: std.builtin.Type = @typeInfo(T);
-    ti = switch (ti) {
-        .optional => ti.optional.child,
-        else => ti,
-    };
-    return ti == .pointer;
+    if (ti == .Optional) {
+        ti = @typeInfo(ti.Optional.child);
+    }
+    return ti == .Pointer;
 }
 
 pub fn LfQueue(comptime T: type) type {

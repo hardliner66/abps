@@ -1,18 +1,12 @@
-//! This Source Code Form is subject to the terms of the Mozilla Public
-//! License, v. 2.0. If a copy of the MPL was not distributed with this
-//! file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 const std = @import("std");
-const ztracy = @import("ztracy");
+const p = std.debug.print;
 
 pub fn print(comptime format: []const u8, args: anytype) void {
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
-
+    var buffer: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    const stdout = &stdout_writer.interface;
     stdout.print(format, args) catch {};
-
-    bw.flush() catch {};
+    stdout.flush() catch {};
 }
 
 pub fn println(comptime format: []const u8, args: anytype) void {
@@ -20,13 +14,11 @@ pub fn println(comptime format: []const u8, args: anytype) void {
 }
 
 pub fn eprint(comptime format: []const u8, args: anytype) void {
-    const stdout_file = std.io.getStdErr().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
-
-    stdout.print(format, args) catch {};
-
-    bw.flush() catch {};
+    var buffer: [1024]u8 = undefined;
+    var stderr_writer = std.fs.File.stderr().writer(&buffer);
+    const stderr = &stderr_writer.interface;
+    stderr.print(format, args) catch {};
+    stderr.flush() catch {};
 }
 
 pub fn eprintln(comptime format: []const u8, args: anytype) void {

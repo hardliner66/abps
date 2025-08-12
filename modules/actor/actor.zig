@@ -1,7 +1,3 @@
-//! This Source Code Form is subject to the terms of the Mozilla Public
-//! License, v. 2.0. If a copy of the MPL was not distributed with this
-//! file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
@@ -16,7 +12,6 @@ fn WeakPtr(comptime T: type) type {
 }
 
 const containers = @import("containers");
-const ztracy = @import("ztracy");
 
 const aff = @cImport({
     @cInclude("affinity.h");
@@ -41,7 +36,7 @@ pub fn Behavior(comptime T: type) type {
 
         // The handle method signature expected by the system
         fn handle(self: *Actor, sys: *System, from: ?ActorRef, msg: *Any) !void {
-            const instance: *T = @alignCast(@ptrCast(self.behavior.instance));
+            const instance: *T = @ptrCast(@alignCast(self.behavior.instance));
             // Forward the handle to the instance's method
             try instance.handle(self, sys, from, msg);
         }
@@ -63,7 +58,7 @@ pub fn Behavior(comptime T: type) type {
 
         // Function to deallocate the behavior
         fn destroy(self: *ErasedBehavior) void {
-            const instance: *T = @alignCast(@ptrCast(self.instance));
+            const instance: *T = @ptrCast(@alignCast(self.instance));
             self.allocator.destroy(instance);
             self.allocator.destroy(self);
         }
@@ -79,15 +74,11 @@ pub const Actor = struct {
     parent: ?ActorRef,
 
     pub fn become(self: *Actor, comptime T: type, behavior: T) !void {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
         self.behavior.destroy(self.behavior);
         self.behavior = try Behavior(T).create(self.allocator, behavior);
     }
 
     pub fn init(allocator: Allocator, comptime T: type, behavior: T) !*Actor {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
         var actor = try allocator.create(Actor);
         actor.allocator = allocator;
         actor.behavior = try Behavior(T).create(actor.allocator, behavior);
@@ -96,8 +87,6 @@ pub const Actor = struct {
     }
 
     pub fn deinit(self: *Actor) void {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
         self.behavior.destroy(self.behavior);
     }
 };
@@ -116,8 +105,6 @@ pub const Envelope = struct {
     msg: Any,
 
     pub fn deinit(self: *Envelope) void {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
         self.msg.deinit();
     }
 };
@@ -129,8 +116,6 @@ pub const Mailbox = struct {
     allocator: Allocator,
 
     pub fn init(allocator: Allocator, actor: *Actor, scheduler: *Scheduler, locked: bool) !*@This() {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
         var mb = try allocator.create(Mailbox);
 
         mb.actor = actor;
@@ -142,8 +127,6 @@ pub const Mailbox = struct {
     }
 
     pub fn deinit(self: *Mailbox) void {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
         while (self.queue.pop()) |env| {
             env.deinit();
             self.allocator.destroy(env);
@@ -169,8 +152,6 @@ pub const Scheduler = struct {
         system: *System,
         cpu: usize,
     ) !*@This() {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
         var scheduler = try allocator.create(Scheduler);
 
         scheduler.mailboxes = std.ArrayList(*Mailbox).init(allocator);
@@ -188,10 +169,8 @@ pub const Scheduler = struct {
     }
 
     pub fn deinit(self: *Scheduler) !void {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
         self.stop();
-        while (self.mailboxes.popOrNull()) |mb| {
+        while (self.mailboxes.pop()) |mb| {
             mb.deinit();
             self.allocator.destroy(mb);
         }
@@ -200,25 +179,19 @@ pub const Scheduler = struct {
     }
 
     pub fn stop(self: *Scheduler) void {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
         self.running.store(false, .monotonic);
     }
 
     pub fn wait(self: *Scheduler) void {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
         self.worker.join();
     }
 
     fn work(self: *Scheduler) !void {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
         _ = aff.set_affinity(self.cpu);
         while (self.running.load(.monotonic)) {
             if (self.new_mailboxes_lock.tryLock()) {
                 defer self.new_mailboxes_lock.unlock();
-                while (self.new_mailboxes.popOrNull()) |mb| {
+                while (self.new_mailboxes.pop()) |mb| {
                     try self.mailboxes.append(mb);
                 }
             }
@@ -259,8 +232,6 @@ pub const System = struct {
     options: SystemOptions,
 
     pub fn init(allocator: Allocator, options: SystemOptions) !*@This() {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
         var system = try allocator.create(System);
         var schedulers = std.ArrayList(*Scheduler).init(allocator);
         const cpu_count = options.cpu_count orelse try std.Thread.getCpuCount();
@@ -279,9 +250,7 @@ pub const System = struct {
     }
 
     pub fn deinit(self: *System) !void {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
-        while (self.schedulers.popOrNull()) |scheduler| {
+        while (self.schedulers.pop()) |scheduler| {
             try scheduler.deinit();
             self.allocator.destroy(scheduler);
         }
@@ -290,16 +259,12 @@ pub const System = struct {
     }
 
     pub fn spawnWithName(self: *System, parent: ?ActorRef, name: []const u8, comptime T: type, behavior: T) !ActorRef {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
         const ref = try self.spawn(parent, T, behavior);
         ref.ref.actor.name = name;
         return ref;
     }
 
     fn createRefAndAdd(self: *System, actor: *Actor) !ActorRef {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
         const i = self.counter.fetchAdd(1, .monotonic);
         const mb = try Mailbox.init(self.allocator, actor, self.schedulers.items[i % self.schedulers.items.len], self.options.locked);
 
@@ -314,8 +279,6 @@ pub const System = struct {
     }
 
     pub fn spawn(self: *System, parent: ?ActorRef, comptime T: type, behavior: T) !ActorRef {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
         const actor = try Actor.init(
             self.allocator,
             T,
@@ -328,16 +291,12 @@ pub const System = struct {
     }
 
     pub fn wait(self: *System) void {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
         for (self.schedulers.items) |scheduler| {
             scheduler.wait();
         }
     }
 
     pub fn send(self: *System, from: ?ActorRef, to: ActorRef, comptime T: type, value: T) !void {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
         const m = try self.allocator.create(Envelope);
         m.from = from;
         m.to = to;
@@ -349,8 +308,6 @@ pub const System = struct {
     }
 
     pub fn stop(self: *System) void {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
         for (self.schedulers.items) |scheduler| {
             scheduler.stop();
         }
@@ -381,19 +338,15 @@ pub const Any = struct {
     }
 
     pub fn matches(self: *Any, comptime T: type) ?T {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
         if (std.mem.eql(u8, self.type_name, @typeName(T))) {
             self.read = true;
-            const ptr: *T = @alignCast(@ptrCast(self.ptr));
+            const ptr: *T = @ptrCast(@alignCast(self.ptr));
             return ptr.*;
         }
         return null;
     }
 
     pub fn deinit(self: *const Any) void {
-        const tracy_zone = ztracy.Zone(@src());
-        defer tracy_zone.End();
         self.dealloc(self.allocator, self.ptr);
     }
 };
@@ -402,21 +355,17 @@ pub fn any(comptime T: type) type {
     return struct {
         ptr: *anyopaque,
         allocator: Allocator,
-        dealloc: *const fn (allocator: Allocator, ptr: *anyopaque) void,
-        debug: *const fn (actor: *Actor, ptr: *anyopaque) void,
+        dealloc_fn: *const fn (allocator: Allocator, ptr: *anyopaque) void,
+        debug_fn: *const fn (actor: *Actor, ptr: *anyopaque) void,
         read: bool,
 
         fn dealloc(allocator: Allocator, ptr: *anyopaque) void {
-            const tracy_zone = ztracy.Zone(@src());
-            defer tracy_zone.End();
-            const p: *T = @alignCast(@ptrCast(ptr));
+            const p: *T = @ptrCast(@alignCast(ptr));
             allocator.destroy(p);
         }
 
         fn debug(actor: *Actor, ptr: *anyopaque) void {
-            const tracy_zone = ztracy.Zone(@src());
-            defer tracy_zone.End();
-            const p: *T = @alignCast(@ptrCast(ptr));
+            const p: *T = @ptrCast(@alignCast(ptr));
             const format_string = comptime if (std.mem.eql(u8, @typeName(T), @typeName(*[]const u8)))
                 "Message was not handled by {*}.\"{s}\": {s}"
             else if (std.mem.eql(u8, @typeName(T), @typeName(*[]u8)))
@@ -431,8 +380,6 @@ pub fn any(comptime T: type) type {
         }
 
         pub fn init(allocator: Allocator, v: T) !Any {
-            const tracy_zone = ztracy.Zone(@src());
-            defer tracy_zone.End();
             return try Any.init(allocator, T, v, &dealloc, &debug);
         }
     };

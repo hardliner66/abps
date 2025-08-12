@@ -4,6 +4,3 @@
 [submodule "extern/zig-clap"]
 	path = extern/zig-clap
 	url = https://github.com/Hejsil/zig-clap
-[submodule "extern/zig-gamedev"]
-	path = extern/zig-gamedev
-	url = https://github.com/zig-gamedev/zig-gamedev
