@@ -12,7 +12,7 @@ const Receiver = struct {
     max_messages: usize,
     count: usize,
 
-    pub fn handle(state: *@This(), self: *a.Actor, sys: *a.System, _: ?a.ActorRef, msg: *a.Any) anyerror!void {
+    pub fn handle(state: *@This(), self: *a.Actor, sys: *a.System, _: ?*a.ActorRef, msg: *a.Any) anyerror!void {
         _ = self;
         if (msg.matches(void)) |_| {
             state.count += 1;
@@ -25,7 +25,7 @@ const Receiver = struct {
 
 const Sender = struct {
     message_count: usize,
-    pub fn handle(state: *@This(), self: *a.Actor, sys: *a.System, from: ?a.ActorRef, msg: *a.Any) anyerror!void {
+    pub fn handle(state: *@This(), self: *a.Actor, sys: *a.System, from: ?*a.ActorRef, msg: *a.Any) anyerror!void {
         if (msg.matches(void)) |_| {
             for (0..state.message_count) |_| {
                 try sys.send(self.ref, from.?, void, void{});

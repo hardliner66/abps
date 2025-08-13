@@ -7,10 +7,10 @@ const clap = @import("clap");
 const println = helper.println;
 const eprintln = helper.eprintln;
 const config = @import("config");
-const janet = @cImport(@cInclude("janet.h"));
+const janet = @import("janet").c;
 
 const Die = struct {
-    pub fn handle(_: *Die, _: *a.Actor, sys: *a.System, _: ?a.ActorRef, msg: *a.Any) anyerror!void {
+    pub fn handle(_: *Die, _: *a.Actor, sys: *a.System, _: ?*a.ActorRef, msg: *a.Any) anyerror!void {
         // make sure we dont get a "message was not handled!" message
         _ = msg.matches(void);
         sys.stop();
@@ -26,10 +26,10 @@ const SomeError = error{
 
 const Counting = struct {
     max_messages: usize,
-    next: a.ActorRef,
+    next: *a.ActorRef,
 
-    pub fn handle(state: *@This(), self: *a.Actor, sys: *a.System, _: ?a.ActorRef, msg: *a.Any) anyerror!void {
-        if (msg.matches(a.ActorRef)) |r| {
+    pub fn handle(state: *@This(), self: *a.Actor, sys: *a.System, _: ?*a.ActorRef, msg: *a.Any) anyerror!void {
+        if (msg.matches(*a.ActorRef)) |r| {
             state.next = r;
         }
         if (msg.matches(i32)) |v| {
@@ -53,20 +53,12 @@ const Counting = struct {
 
 const Initial = struct {
     max_messages: usize,
-    pub fn handle(state: *@This(), self: *a.Actor, _: *a.System, _: ?a.ActorRef, msg: *a.Any) anyerror!void {
-        if (msg.matches(a.ActorRef)) |r| {
+    pub fn handle(state: *@This(), self: *a.Actor, _: *a.System, _: ?*a.ActorRef, msg: *a.Any) anyerror!void {
+        if (msg.matches(*a.ActorRef)) |r| {
             try self.become(Counting, .{ .next = r, .max_messages = state.max_messages });
         }
     }
 };
-
-fn spawn(argc: i32, argv: [*c]janet.Janet) callconv(.c) janet.Janet {
-    var sum: f64 = 0;
-    for (0..@intCast(argc)) |idx| {
-        sum += argv[idx].number;
-    }
-    return .{ .number = sum };
-}
 
 pub fn main() !void {
     const params = comptime clap.parseParamsComptime(
@@ -106,19 +98,6 @@ pub fn main() !void {
         allocator = gpa.allocator();
     }
 
-    _ = janet.janet_init();
-    defer janet.janet_deinit();
-
-    const env = janet.janet_core_env(null);
-    const spawn_reg = janet.JanetReg{ .cfun = &spawn, .name = "spawn", .documentation = "" };
-    const end_reg = janet.JanetReg{ .cfun = null, .name = null, .documentation = null };
-
-    const abps = [_]janet.JanetReg{ spawn_reg, end_reg };
-
-    janet.janet_cfuns(env, "abps", &abps[0]);
-
-    _ = janet.janet_dostring(env, "(print (spawn 1 2))", "main", null);
-
     const locked = res.args.locked != 0;
     const debug = res.args.debug != 0;
 
@@ -152,13 +131,18 @@ pub fn main() !void {
         });
         defer system.deinit() catch {};
 
+        const env = a.create_env();
+        defer janet.janet_deinit();
+
+        _ = janet.janet_dostring(env, "(print (spawn 1 2))", "main", null);
+
         const first = try system.spawnWithName(
             null,
             "Counting Actor 1",
             Initial,
             .{ .max_messages = message_count },
         );
-        var last: a.ActorRef = first;
+        var last: *a.ActorRef = first;
         for (0..cpu_count - 1) |i| {
             var all_together: [100]u8 = undefined;
             // You can use slice syntax with at least one runtime-known index on an
@@ -177,14 +161,14 @@ pub fn main() !void {
             );
         }
         try system.send(first, first, []const u8, "test");
-        try system.send(first, first, a.ActorRef, last);
+        try system.send(first, first, *a.ActorRef, last);
         try system.send(first, first, i32, 1);
 
         const abcd = try system.spawnWithName(
             null,
             "",
             struct {
-                pub fn handle(_: *@This(), _: *a.Actor, _: *a.System, _: ?a.ActorRef, msg: *a.Any) anyerror!void {
+                pub fn handle(_: *@This(), _: *a.Actor, _: *a.System, _: ?*a.ActorRef, msg: *a.Any) anyerror!void {
                     if (msg.matches(i32)) |v| {
                         println("Anonymous Actor got value: {}", .{v});
                     }

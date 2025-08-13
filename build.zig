@@ -6,6 +6,7 @@ pub const ExeConfig = struct {
     helper: *std.Build.Module,
     clap: *std.Build.Module,
     actor: *std.Build.Module,
+    janet: *std.Build.Module,
 };
 
 pub fn make_exe(
@@ -25,6 +26,7 @@ pub fn make_exe(
     exe.root_module.addImport("helper", cfg.helper);
     exe.root_module.addImport("clap", cfg.clap);
     exe.root_module.addImport("actor", cfg.actor);
+    exe.root_module.addImport("janet", cfg.janet);
 
     exe.root_module.addOptions("config", options);
 
@@ -85,6 +87,18 @@ pub fn build(b: *std.Build) void {
         });
     }
 
+    const janet = b.createModule(.{
+        .root_source_file = b.path("modules/janet/janet.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    janet.addIncludePath(b.path("modules/janet"));
+    janet.addCSourceFile(.{
+        .file = b.path("modules/janet/janet.c"),
+        .flags = flags,
+    });
+
     const actor = b.createModule(.{
         .root_source_file = b.path("modules/actor/actor.zig"),
         .target = target,
@@ -97,6 +111,7 @@ pub fn build(b: *std.Build) void {
     }
     actor.addImport("helper", helper);
     actor.addImport("containers", containers);
+    actor.addImport("janet", janet);
     actor.addOptions("config", actor_options);
 
     const cfg = ExeConfig{
@@ -105,6 +120,7 @@ pub fn build(b: *std.Build) void {
         .helper = helper,
         .clap = clap,
         .actor = actor,
+        .janet = janet,
     };
 
     // This declares intent for the executable to be installed into the
@@ -116,12 +132,6 @@ pub fn build(b: *std.Build) void {
         "src/abps.zig",
         cfg,
     );
-
-    exe.addIncludePath(b.path("modules/janet"));
-    exe.addCSourceFile(.{
-        .file = b.path("modules/janet/janet.c"),
-        .flags = flags,
-    });
 
     b.installArtifact(exe);
 

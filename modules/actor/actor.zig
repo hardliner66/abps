@@ -2,6 +2,7 @@ const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const config = @import("config");
+const janet = @import("janet").c;
 
 const helper = @import("helper");
 const println = helper.println;
@@ -24,7 +25,7 @@ pub const ErasedBehavior = struct {
     allocator: Allocator,
 
     // The handle method signature expected by the system
-    handle: *const fn (self: *Actor, sys: *System, from: ?ActorRef, msg: *Any) anyerror!void,
+    handle: *const fn (self: *Actor, sys: *System, from: ?*ActorRef, msg: *Any) anyerror!void,
 
     // Function to deallocate the behavior
     destroy: *const fn (self: *Self) void,
@@ -35,7 +36,7 @@ pub fn Behavior(comptime T: type) type {
         const Self = @This();
 
         // The handle method signature expected by the system
-        fn handle(self: *Actor, sys: *System, from: ?ActorRef, msg: *Any) !void {
+        fn handle(self: *Actor, sys: *System, from: ?*ActorRef, msg: *Any) !void {
             const instance: *T = @ptrCast(@alignCast(self.behavior.instance));
             // Forward the handle to the instance's method
             try instance.handle(self, sys, from, msg);
@@ -66,12 +67,12 @@ pub fn Behavior(comptime T: type) type {
 }
 
 pub const Actor = struct {
-    ref: ActorRef,
+    ref: *ActorRef,
     name: []const u8,
     behavior: *ErasedBehavior,
     allocator: Allocator,
     dealloc: *const fn (allocator: Allocator, ptr: *anyopaque) void,
-    parent: ?ActorRef,
+    parent: ?*ActorRef,
 
     pub fn become(self: *Actor, comptime T: type, behavior: T) !void {
         self.behavior.destroy(self.behavior);
@@ -100,8 +101,8 @@ pub const DeadLetter = struct {
 };
 
 pub const Envelope = struct {
-    to: ActorRef,
-    from: ?ActorRef,
+    to: *ActorRef,
+    from: ?*ActorRef,
     msg: Any,
 
     pub fn deinit(self: *Envelope) void {
@@ -136,6 +137,8 @@ pub const Mailbox = struct {
         self.allocator.destroy(self.actor);
     }
 };
+
+threadlocal var sched: ?*Scheduler = null;
 
 pub const Scheduler = struct {
     new_mailboxes: std.ArrayList(*Mailbox),
@@ -188,6 +191,15 @@ pub const Scheduler = struct {
 
     fn work(self: *Scheduler) !void {
         _ = aff.set_affinity(self.cpu);
+
+        sched = self;
+
+        _ = janet.janet_init();
+        defer janet.janet_deinit();
+
+        const j_env = create_env();
+        _ = j_env;
+
         while (self.running.load(.monotonic)) {
             if (self.new_mailboxes_lock.tryLock()) {
                 defer self.new_mailboxes_lock.unlock();
@@ -258,13 +270,13 @@ pub const System = struct {
         self.allocator.destroy(self);
     }
 
-    pub fn spawnWithName(self: *System, parent: ?ActorRef, name: []const u8, comptime T: type, behavior: T) !ActorRef {
+    pub fn spawnWithName(self: *System, parent: ?*ActorRef, name: []const u8, comptime T: type, behavior: T) !*ActorRef {
         const ref = try self.spawn(parent, T, behavior);
         ref.ref.actor.name = name;
         return ref;
     }
 
-    fn createRefAndAdd(self: *System, actor: *Actor) !ActorRef {
+    fn createRefAndAdd(self: *System, actor: *Actor) !*ActorRef {
         const i = self.counter.fetchAdd(1, .monotonic);
         const mb = try Mailbox.init(self.allocator, actor, self.schedulers.items[i % self.schedulers.items.len], self.options.locked);
 
@@ -273,12 +285,13 @@ pub const System = struct {
         defer scheduler.new_mailboxes_lock.unlock();
         try scheduler.new_mailboxes.append(mb);
 
-        const ref = ActorRef{ .ref = mb };
+        const ref = try self.allocator.create(ActorRef);
+        ref.ref = mb;
         actor.ref = ref;
         return ref;
     }
 
-    pub fn spawn(self: *System, parent: ?ActorRef, comptime T: type, behavior: T) !ActorRef {
+    pub fn spawn(self: *System, parent: ?*ActorRef, comptime T: type, behavior: T) !*ActorRef {
         const actor = try Actor.init(
             self.allocator,
             T,
@@ -296,7 +309,7 @@ pub const System = struct {
         }
     }
 
-    pub fn send(self: *System, from: ?ActorRef, to: ActorRef, comptime T: type, value: T) !void {
+    pub fn send(self: *System, from: ?*ActorRef, to: *ActorRef, comptime T: type, value: T) !void {
         const m = try self.allocator.create(Envelope);
         m.from = from;
         m.to = to;
@@ -383,4 +396,33 @@ pub fn any(comptime T: type) type {
             return try Any.init(allocator, T, v, &dealloc, &debug);
         }
     };
+}
+
+const JanetActor = struct {
+    fun: [*c]janet.JanetFunction,
+    pub fn handle(state: *@This(), _: *Actor, _: *System, _: ?*ActorRef, msg: *Any) anyerror!void {
+        if (msg.matches([*c]const janet.Janet)) |j| {
+            _ = janet.janet_call(state.fun, 1, j);
+        }
+    }
+};
+
+fn spawn(argc: i32, argv: [*c]janet.Janet) callconv(.c) janet.Janet {
+    _ = argc;
+    const ar = sched.?.system.spawn(null, JanetActor, .{ .fun = janet.janet_unwrap_function(argv[0]) }) catch {
+        return .{ .number = 1 };
+    };
+    return janet.janet_wrap_abstract(ar);
+}
+
+pub fn create_env() [*c]janet.JanetTable {
+    _ = janet.janet_init();
+    const env = janet.janet_core_env(null);
+    const spawn_reg = janet.JanetReg{ .cfun = &spawn, .name = "spawn", .documentation = "" };
+    const end_reg = janet.JanetReg{ .cfun = null, .name = null, .documentation = null };
+
+    const abps = [_]janet.JanetReg{ spawn_reg, end_reg };
+
+    janet.janet_cfuns(env, "abps", &abps[0]);
+    return env;
 }
